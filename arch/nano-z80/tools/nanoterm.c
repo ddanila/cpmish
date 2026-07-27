@@ -187,6 +187,8 @@ static void xmodem_receive(void) {
                 print("Transmission done");
                 crlf();
                 cpm_close_file(&xmodem_file);
+                outp = ACK;
+                uart_putc_raw(outp);
                 return;
             }
             if(inp == CAN) {
