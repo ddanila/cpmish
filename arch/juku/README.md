@@ -146,6 +146,33 @@ machine tests remain the next validation stages.
 5. Add optional RAM-disk support after the floppy-backed baseline is stable.
 6. Reuse the proven hardware layer for a nonbanked CP/M Plus 3.1 port.
 
+## Diskless network mode
+
+The network target is not merely a way to load the resident system. It is a
+Juku with no local floppy drive whose A: volume remains attached to the host
+for the whole CP/M session. The local-floppy image stays available as the
+reference build and as a way to isolate network faults from filesystem faults.
+
+The implementation is deliberately two-stage:
+
+1. Stock Ekta 3.7 NetBios loads `juku-system.bin` using Janet 1.2 at its proven
+   divisor 8 setting: nominal 9600 baud, 8 data bits, odd parity, one stop.
+2. The network BIOS takes over the same D11 8251/D57 channel-0 path, programs
+   divisor 4 for nominal 19,200 baud, and exposes a host-backed drive A.
+
+BIOS requests use CP/M's native 128-byte record size. Each transaction carries
+an operation, sequence number, drive, 16-bit track, logical sector, payload
+when writing, and checksum. Replies echo the sequence and status; bounded
+timeout/retry makes reads recoverable and makes duplicate writes idempotent on
+the host. The host uses the existing flat 400 KiB volume layout, not WD1793
+commands or raw double-sided offsets.
+
+The rate boundary is a design target, not yet a physical-machine claim. Stock
+boot is already simulator-proven at 9600. The resident protocol will be tested
+at nominal 19,200 in cosim, then tried on CS00015; its D57 divisor will remain a
+build-time constant so hardware experiments can fall back or explore faster
+rates without redesigning the protocol.
+
 The CP/Mish default ZCPR1/ZSDOS pair is not the bring-up kernel: ZSDOS states
 that it requires a Z80, and ZCPR1 emits Z80-only opcodes. The first Juku build
 will use the 8080-compatible Digital Research CCP and BDOS sources already
