@@ -15,6 +15,9 @@ testing	equ	false	;true if debugging
 ;
 	public CBASE
 	extern FBASE
+.ifdef JUKU
+	extern VERMSG
+.endif
 
 tran	equ	100h
 tranm	equ	$
@@ -265,11 +268,13 @@ del$sub:
 	lda cdisk! jmp select ;back to original drive
 ;
 serialize:
+.ifndef JUKU
 	;check serialization
 	lxi d,serial! lxi h,FBASE! mvi b,6 ;check six bytes
 	ser0:	ldax d! cmp m! jnz badserial
 		inx d! inx h! dcr b! jnz ser0
 		ret ;serial number is ok
+.endif
 ;
 comerr:
 	;error in command string starting at position
@@ -393,8 +398,13 @@ intvec:
 	db	'SAVE'
 	db	'REN '
         db      'USER'
+.ifdef JUKU
+	db	'VER '
+.endif
 	intlen equ ($-intvec)/4 ;intrinsic function length
+.ifndef JUKU
 	serial: db 0,0,0,0,0,0
+.endif
 ;
 ;
 intrinsic:
@@ -468,12 +478,17 @@ ccp0:	;(enter here from initialization with command full)
 			dw	save	;save memory image
 			dw	rename	;file rename
 			dw	user	;user number
+.ifdef JUKU
+			dw	version	;Juku CP/Mish build identity
+.endif
 			dw	userfunc;user-defined function
+.ifndef JUKU
 		badserial:
 			LXI	H,76F3H	;'DI HLT' instructions.	
 			;typo "lxi h,di or (hlt shl 8)" here originally,
 			;corrected by comparing to disassembly of Clark Calkins.
 			shld ccploc! lxi h,ccploc! pchl
+.endif
 			;
 ;
 	;utility subroutines for intrinsic handlers
@@ -731,8 +746,15 @@ user:
 	call setuser ;new user number set
 	jmp endcom
 ;
+.ifdef JUKU
+version:
+	lxi b,VERMSG! call print! jmp endcom
+;
+.endif
 userfunc:
+.ifndef JUKU
 	call serialize ;check serialization
+.endif
 	;load user function and set up for execution
 	lda comfcb+1! cpi ' '! jnz user0
 		;no file name, but may be disk switch

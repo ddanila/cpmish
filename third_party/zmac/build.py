@@ -58,6 +58,7 @@ def zmac(
     relocatable=True,
     z180=False,
     dri=False,
+    defines=[],
 ):
     ext = ".rel" if relocatable else ".cim"
     relflag = "--rel7" if relocatable else ""
@@ -66,6 +67,7 @@ def zmac(
         archflag += " --z180"
     if dri:
         archflag += " --dri"
+    defineflags = " ".join(f"-D{define}" for define in defines)
     outfile = f"={self.localname}{ext}"
 
     hdrflags = " ".join([f"-I{dirname(f)}" for f in filenamesof(deps)])
@@ -75,7 +77,7 @@ def zmac(
         ins=[src, "third_party/zmac"] + deps,
         outs=[f"={self.localname}{ext}"],
         commands=[
-            f"{{ins[1]}} --nmnv --zmac -m {relflag} {archflag} {hdrflags} -o {{outs[0]}} {{ins[0]}}"
+            f"{{ins[1]}} --nmnv --zmac -m {relflag} {archflag} {defineflags} {hdrflags} -o {{outs[0]}} {{ins[0]}}"
         ],
         label="ZMAC",
     )

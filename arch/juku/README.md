@@ -147,6 +147,13 @@ CCP parser, BDOS filesystem, BIOS sector translation, RomBios deblocking and
 write cache, and emulator write path together. Janet network boot and physical
 machine tests remain the next validation stages.
 
+The Juku CCP also adds a deterministic built-in `VER` command. It reports the
+CP/Mish Juku 2.2 8080 build, preserves the original Digital Research CCP
+attribution, and credits the port and its development tooling without embedding
+a host-clock timestamp that would make otherwise identical images differ. Its
+source-controlled build date is updated deliberately when the Juku system
+identity changes.
+
 ## Port plan
 
 1. ~~Add a reproducible, strictly 8080-compatible Juku CP/M 2.2 system as the

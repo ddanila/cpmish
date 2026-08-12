@@ -9,6 +9,7 @@
 
         cseg
 label   BBASE
+        public  VERMSG
 
 ; Public CP/M 2.2 BIOS jump table.
         jmp     BOOT
@@ -115,6 +116,13 @@ BOOT:
         db      'A:, B: - 386K floppy',13,10,10,0
 .endif
         jmp     GOCPM
+
+VERMSG:
+        db      'CP/MISH JUKU 2.2 - 8080 BUILD',13,10
+        db      'BUILD DATE: 2026-08-12',13,10
+        db      'ORIGINAL CCP: DIGITAL RESEARCH',13,10
+        db      'PORT: DANILA SUKHAREV',13,10
+        db      'BUILT WITH CODEX GPT-5.6 SOL',0
 
 ; Resident CCP is outside the TPA and remains valid, so warm boot does not
 ; depend on the system tracks of the currently inserted disk.

@@ -48,6 +48,15 @@ def main() -> None:
         require("!" not in comment,
                 f"CCP line {lineno} contains a statement separator in a comment")
 
+    ccp_source = CCP_SOURCE.read_text()
+    require("db\t'VER '" in ccp_source, "CCP VER intrinsic is missing")
+
+    bios_source = (ROOT / "arch" / "juku" / "bios.asm").read_text()
+    for marker in ("CP/MISH JUKU 2.2", "BUILD DATE: 2026-08-12",
+                   "DIGITAL RESEARCH", "DANILA SUKHAREV",
+                   "CODEX GPT-5.6 SOL"):
+        require(marker in bios_source, f"BIOS version marker is missing: {marker}")
+
     system = system_path.read_bytes()
     flat = flat_path.read_bytes()
     raw = raw_path.read_bytes()
@@ -56,6 +65,10 @@ def main() -> None:
     require(system[:PREFIX_SIZE] == bytes([0xE5]) * PREFIX_SIZE,
             "system file lacks its four-record E5 prefix")
     require(system[PREFIX_SIZE] == 0xC3, "CCP entry is not a JMP")
+    for marker in (b"CP/MISH JUKU 2.2", b"BUILD DATE: 2026-08-12",
+                   b"DIGITAL RESEARCH", b"DANILA SUKHAREV",
+                   b"CODEX GPT-5.6 SOL"):
+        require(marker in system, f"system version marker is missing: {marker!r}")
     bios = PREFIX_SIZE + BBASE - CBASE
     require(system[bios] == 0xC3, "BIOS entry is not a JMP")
     require(system[PREFIX_SIZE + SYSTEM_SIZE:] ==

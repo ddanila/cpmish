@@ -26,7 +26,7 @@ ld80(
     name="memory",
     address=CBASE,
     objs={
-        CBASE: ["third_party/dr/ccp"],
+        CBASE: ["third_party/dr/ccp+ccp-juku"],
         FBASE: ["third_party/dr/bdos"],
         BBASE: [".+bios"],
     },
@@ -35,7 +35,7 @@ ld80(
     name="memory-net",
     address=CBASE,
     objs={
-        CBASE: ["third_party/dr/ccp"],
+        CBASE: ["third_party/dr/ccp+ccp-juku"],
         FBASE: ["third_party/dr/bdos"],
         BBASE: [".+bios-net"],
     },

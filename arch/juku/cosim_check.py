@@ -18,6 +18,7 @@ ROM = COSIM / "roms" / "ekta37.bin"
 TRACK_SIZE = 10 * 512
 TRACKS = 80
 EXPECTED_VRAM = {
+    "VER": "1ed8eb6710aa6c3189454110de5555c0b1b8de7328ef0777576fd21181f6e889",
     "DIR": "87b4cee2c2fae4d49bb6ad28b86385d6af8688340d0e29ddd515b923acc3f89a",
     "STAT": "b27e2611254bcd5608e9a74bec5bfe2d97c7a24b5de7b29982818f45d5ba9194",
     "SAVE 1 TEST.COM": "e3fa93fc3b0f513631a00d47be64e956a36d39c4c77d89f9f6b200fb65a0e9ae",
@@ -101,6 +102,7 @@ def main() -> None:
         work = Path(name)
         trace = work / "trace"
         build_trace(trace)
+        run_case(trace, work, "VER")
         run_case(trace, work, "DIR")
         run_case(trace, work, "STAT")
         saved = run_case(trace, work, "SAVE 1 TEST.COM")
