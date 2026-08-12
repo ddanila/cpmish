@@ -9,7 +9,7 @@ juku-cosim-check: juku.img
 	python3 arch/juku/cosim_check.py
 
 .PHONY: juku-net-cosim-check
-juku-net-cosim-check: juku-net-system.bin juku.img
+juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin juku-net-smoke.img juku.img
 	python3 arch/juku/net_cosim_check.py
 
 TARGETS = +all

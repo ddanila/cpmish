@@ -14,5 +14,7 @@ export(
         "juku.img": "arch/juku+diskimage",
         "juku-system.bin": "arch/juku+systemfile",
         "juku-net-system.bin": "arch/juku+systemfile-net",
+        "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
+        "juku-net-smoke.img": "arch/juku+net-smoke-volume",
     },
 )

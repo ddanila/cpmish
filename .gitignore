@@ -1,5 +1,7 @@
 # keep artifacts out of github
 .obj/
+__pycache__/
 *.img
 /juku-system.bin
 /juku-net-system.bin
+/juku-net-smoke-system.bin

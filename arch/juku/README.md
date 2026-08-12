@@ -199,7 +199,8 @@ not WD1793 commands or raw double-sided offsets.
 Build and test both variants with:
 
 ```sh
-make juku-system.bin juku.img juku-net-system.bin
+make juku-system.bin juku.img juku-net-system.bin \
+    juku-net-smoke-system.bin juku-net-smoke.img
 make juku-cosim-check
 make juku-net-cosim-check
 ```
@@ -210,6 +211,44 @@ divisor 8 then 4, runs `DIR` using 34 remote reads, and runs a writable `SAVE 1
 TEST.COM` session using 38 reads and four writes. Both sessions have zero
 protocol retries, reach the framebuffer `A>` oracle, and the saved host volume
 reopens through cpmtools with a 256-byte `TEST.COM`.
+
+### Monitorless CS00015 network smoke test
+
+`juku-net-smoke-system.bin` and `juku-net-smoke.img` are a matched, read-only
+bench pair. The system image has the Digital Research CCP initial-command field
+set to `SMOKE`. The small flat network volume contains only `SMOKE.COM`. On
+boot, CP/M therefore searches the host-backed A:, reads the transient through
+the resident network BIOS, and starts it without keyboard or monitor input.
+
+`SMOKE.COM` calls the readable Intel 8080 player and tune shared with Jukuravi
+in `third_party/juku-common/music/`. It plays the same twelve-note, four-bar,
+112 BPM phrase already proven on physical CS00015. The player uses only D57
+channel 1; the Janet USART clock remains on independent channel 0. Hearing the
+complete phrase proves this chain:
+
+```text
+Ekta ROM -> Janet bootstrap at 9600 -> CP/M network BIOS at 19200
+         -> remote A: directory lookup -> remote SMOKE.COM reads -> execution
+```
+
+The automated cosim regression boots this exact pair with no FDC attached. It
+requires the 9600-to-19200 takeover, remote disk reads, transient execution at
+`0100h`, all 60 expected speaker PIT writes, the exact twelve divisors, and
+note-onset timing on the 112 BPM grid before CP/M returns to `A>`.
+
+For the monitorless physical test, start the server before powering or resetting
+the Juku:
+
+```sh
+../8080-cosim/tools/janet_disk_server.py /dev/ttyUSB0 \
+    juku-net-smoke-system.bin juku-net-smoke.img
+```
+
+Then type `TN0201` with no Enter at the ROM prompt. No CP/M command is needed.
+The host first uses 9600 baud, 8 data bits, odd parity, one stop bit, and changes
+the same serial device to 19,200/8O1 after the bootstrap. The phrase starts only
+after the network volume has been attached and `SMOKE.COM` has been fetched.
+If it returns to the unseen `A>` prompt, it remains silent after one phrase.
 
 For physical use, first extract/copy the generated flat volume (the 400 KiB
 `+flatdiskimage.img` build artifact) to a convenient working path. Start:

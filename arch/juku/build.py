@@ -24,6 +24,15 @@ zmac(
     deps=["third_party/juku-common/diag/memory.asm"],
     relocatable=False,
 )
+zmac(
+    name="smoke",
+    src="./smoke.asm",
+    deps=[
+        "third_party/juku-common/music/smoke-player.asm",
+        "third_party/juku-common/music/smoke-table.asm",
+    ],
+    relocatable=False,
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -68,6 +77,15 @@ simplerule(
     ],
     label="JUKUNETSYSTEM",
 )
+simplerule(
+    name="systemfile-net-smoke",
+    ins=[".+memory-net"],
+    outs=["=juku-net-smoke-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]} SMOKE",
+    ],
+    label="JUKUNETSMOKESYSTEM",
+)
 
 readme = unix2cpm(name="readme", src="README.md")
 
@@ -85,6 +103,23 @@ flatdiskimage = diskimage(
         "stat.com": "cpmtools+stat",
         "submit.com": "cpmtools+submit",
     },
+)
+
+net_smoke_diskimage = diskimage(
+    name="net-smoke-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-smoke",
+    size=409600,
+    map={
+        "smoke.com": ".+smoke",
+    },
+)
+simplerule(
+    name="net-smoke-volume",
+    ins=[net_smoke_diskimage],
+    outs=["=juku-net-smoke.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETSMOKEVOLUME",
 )
 
 # Raw Juku captures are cylinder/head interleaved. The bootable 386K CP/M
