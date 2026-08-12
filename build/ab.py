@@ -26,7 +26,11 @@ unmaterialisedTargets = {}  # dict, not set, to get consistent ordering
 materialisingStack = []
 defaultGlobals = {}
 
-sys.path += ["."]
+# When this file is executed as build/ab.py, Python puts build/ ahead of the
+# repository root on sys.path.  That makes `build` resolve to build/build.py
+# rather than the build/ namespace package on some Python versions (notably
+# the system Python shipped by macOS).  Prefer the repository root explicitly.
+sys.path.insert(0, ".")
 old_import = builtins.__import__
 
 
@@ -44,6 +48,11 @@ class PathFinderImpl(PathFinder):
 
         realpath = fullname.replace(".", "/")
         buildpath = realpath + ".py"
+        # A target build file and a package directory may share a basename
+        # (the repository has both build.py and build/).  Imports such as
+        # build.cpm must resolve the package first on every Python version.
+        if isdir(realpath):
+            return ModuleSpec(fullname, None, origin=realpath, is_package=True)
         if isfile(buildpath):
             spec = importlib.util.spec_from_file_location(
                 name=fullname,
@@ -52,8 +61,6 @@ class PathFinderImpl(PathFinder):
                 submodule_search_locations=[],
             )
             return spec
-        if isdir(realpath):
-            return ModuleSpec(fullname, None, origin=realpath, is_package=True)
         return None
 
 
@@ -346,6 +353,16 @@ class TargetsMap:
 
 
 def loadbuildfile(filename):
+    if filename == "build.py":
+        spec = importlib.util.spec_from_file_location(
+            name="_root_build",
+            location=filename,
+            loader=BuildFileLoaderImpl(fullname="_root_build", path=filename),
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return
     filename = filename.replace("/", ".").removesuffix(".py")
     builtins.__import__(filename)
 

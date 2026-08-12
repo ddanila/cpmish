@@ -36,7 +36,9 @@ endif
 
 include $(OBJ)/build.mk
 
-MAKEFLAGS += -r -j$(shell nproc)
+# getconf is available on both Linux and macOS; nproc is Linux-specific.
+HOST_JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+MAKEFLAGS += -r -j$(HOST_JOBS)
 .DELETE_ON_ERROR:
 
 .PHONY: update-ab

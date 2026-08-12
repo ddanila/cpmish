@@ -40,19 +40,32 @@ sudo apt install build-essential flex bison cpmtools libz80ex-dev \
     libreadline-dev lua5.4 lua-posix pkg-config cmake ninja-build
 ```
 
+On macOS with Homebrew, install the native build tools with:
+
+```sh
+brew install make cpmtools flex bison readline lua@5.4 pkgconf cmake ninja
+```
+
+Use `gmake` on macOS; Homebrew installs GNU Make under that name. The build
+selects a portable parallel-job count on both Linux and macOS, so an explicit
+`-j$(nproc)` is unnecessary.
+
 CP/Mish also needs the Amsterdam Compiler Kit (ACK) with its `cpm` platform.
 Install it under the user prefix so that `~/.local/bin/ack` and the matching
 platform files remain together:
 
 ```sh
-git clone https://github.com/davidgiven/ack.git ~/fun/ack
-cd ~/fun/ack
-sed -i 's/^PLATS = all$/PLATS = cpm/' Makefile
+git clone https://github.com/davidgiven/ack.git ack
+cd ack
+# Edit Makefile and change `PLATS = all` to `PLATS = cpm`.
 make PREFIX="$HOME/.local" install
 ```
 
+On macOS, invoke the final command with `gmake` and use a Python version newer
+than the system Python if the ACK checkout requires it.
+
 The initial Juku branch point is upstream commit
-`d70c643a5db24007ad6533f92b701fd714a99b7f`. A clean `make -j$(nproc)` at
+`d70c643a5db24007ad6533f92b701fd714a99b7f`. A clean `make` at
 that commit builds all eight upstream disk images successfully with ACK's
 CP/M target, `cpmtools` 2.23, and `libz80ex` 1.1.21.
 
@@ -83,7 +96,7 @@ in CCP comments so this class of error cannot silently return.
 Build the Juku outputs from the repository root:
 
 ```sh
-make -j"$(nproc)" juku-system.bin juku.img
+make juku-system.bin juku.img
 ```
 
 The outputs are:
@@ -170,7 +183,7 @@ not WD1793 commands or raw double-sided offsets.
 Build and test both variants with:
 
 ```sh
-make -j"$(nproc)" juku-system.bin juku.img juku-net-system.bin
+make juku-system.bin juku.img juku-net-system.bin
 make juku-cosim-check
 make juku-net-cosim-check
 ```
