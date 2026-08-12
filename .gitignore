@@ -5,3 +5,4 @@ __pycache__/
 /juku-system.bin
 /juku-net-system.bin
 /juku-net-smoke-system.bin
+/juku-net-baudtest-system.bin

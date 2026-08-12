@@ -15,6 +15,10 @@ export(
         "juku-system.bin": "arch/juku+systemfile",
         "juku-net-system.bin": "arch/juku+systemfile-net",
         "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
+        "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
+        "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
+        "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",
+        "juku-net-baudtest-ladder.img": "arch/juku+net-baudtest-ladder-volume",
     },
 )

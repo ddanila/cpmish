@@ -1,0 +1,7 @@
+{
+  "test_baud": 19200,
+  "phase": "host_to_juku_ack",
+  "packet_index": 16,
+  "packet_byte": 14,
+  "pass": false
+}

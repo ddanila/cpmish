@@ -169,7 +169,7 @@ identity changes.
    bring-up baseline.~~
 2. ~~Validate filesystem reads/writes, console input, transient commands, and
    warm boot in `8080-cosim`.~~
-3. Validate `juku-system.bin` through the existing Janet 19,200-baud network
+3. Validate `juku-system.bin` through the existing Janet serial-network
    bootstrap and add the cross-repository regression.
 4. Test the image on CS00015, first through Janet and then from physical media.
 5. Add optional RAM-disk support after the floppy-backed baseline is stable.
@@ -186,8 +186,8 @@ The implemented mode is deliberately two-stage:
 
 1. Stock Ekta 3.7 NetBios loads `juku-net-system.bin` using Janet 1.2 at its proven
    divisor 8 setting: nominal 9600 baud, 8 data bits, odd parity, one stop.
-2. The network BIOS takes over the same D11 8251/D57 channel-0 path, programs
-   divisor 4 for nominal 19,200 baud, and exposes a host-backed drive A.
+2. The network BIOS takes over the same D11 8251/D57 channel-0 path, retains
+   divisor 8 for nominal 9,600 baud, and exposes a host-backed drive A.
 
 BIOS requests use CP/M's native 128-byte record size. Each transaction carries
 an operation, sequence number, drive, 16-bit track, logical sector, payload
@@ -200,14 +200,15 @@ Build and test both variants with:
 
 ```sh
 make juku-system.bin juku.img juku-net-system.bin \
-    juku-net-smoke-system.bin juku-net-smoke.img
+    juku-net-smoke-system.bin juku-net-smoke.img \
+    juku-net-baudtest-system.bin juku-net-baudtest-9600.img
 make juku-cosim-check
 make juku-net-cosim-check
 ```
 
 `juku-net-system.bin` is the diskless network image. The network regression
-boots it through stock Janet with no FDC image attached to cosim, observes D57
-divisor 8 then 4, runs `DIR` using 34 remote reads, and runs a writable `SAVE 1
+boots it through stock Janet with no FDC image attached to cosim, retains D57
+divisor 8, runs `DIR` using 34 remote reads, and runs a writable `SAVE 1
 TEST.COM` session using 38 reads and four writes. Both sessions have zero
 protocol retries, reach the framebuffer `A>` oracle, and the saved host volume
 reopens through cpmtools with a 256-byte `TEST.COM`.
@@ -227,12 +228,12 @@ channel 1; the Janet USART clock remains on independent channel 0. Hearing the
 complete phrase proves this chain:
 
 ```text
-Ekta ROM -> Janet bootstrap at 9600 -> CP/M network BIOS at 19200
+Ekta ROM -> Janet bootstrap at 9600 -> CP/M network BIOS at 9600
          -> remote A: directory lookup -> remote SMOKE.COM reads -> execution
 ```
 
 The automated cosim regression boots this exact pair with no FDC attached. It
-requires the 9600-to-19200 takeover, remote disk reads, transient execution at
+requires the 9600 resident takeover, remote disk reads, transient execution at
 `0100h`, all 60 expected speaker PIT writes, the exact twelve divisors, and
 note-onset timing on the 112 BPM grid before CP/M returns to `A>`.
 
@@ -245,8 +246,7 @@ the Juku:
 ```
 
 Then type `TN0201` with no Enter at the ROM prompt. No CP/M command is needed.
-The host first uses 9600 baud, 8 data bits, odd parity, one stop bit, and changes
-the same serial device to 19,200/8O1 after the bootstrap. The phrase starts only
+The host uses 9600 baud, 8 data bits, odd parity, one stop bit throughout. The phrase starts only
 after the network volume has been attached and `SMOKE.COM` has been fetched.
 If it returns to the unseen `A>` prompt, it remains silent after one phrase.
 
@@ -259,17 +259,124 @@ For physical use, first extract/copy the generated flat volume (the 400 KiB
 ```
 
 Then type `TN0201` with no Enter at the Juku ROM prompt. The server bootstraps
-at 9600/8O1, switches its serial device to 19,200/8O1, repeatedly emits the
+at 9600/8O1, retains that rate, repeatedly emits the
 `NR` resident-ready marker until the BIOS synchronizes, and then serves A:.
 Without `--writable`, write requests return a CP/M disk error and the host image
 is unchanged.
 
-The 19,200 rate is simulator-proven but is not yet a physical-machine claim.
-It will be tried on CS00015. The D57 divisor is kept as one BIOS constant so
-hardware experiments can fall back or explore faster rates without redesigning
-the protocol. The first implementation retries checksum/sequence failures, but
-a completely silent server still leaves the BIOS in its polled receive loop;
-a bounded timeout is the next robustness improvement.
+Physical CS00015 has completed this full network-disk smoke path at 9600. The
+separate automatic BAUDTEST switches rates only after a 9600 marker, announces
+readiness at the test rate, and runs eleven independently recoverable
+host-to-Juku cases: unpaced payloads of 1, 2, 4, 8, 16, 32, 64, and 133 bytes,
+then 133 bytes paced at 0.75, 1.25, and 2.0 ms. Every case starts from a reset
+8251, has a bounded inter-byte timeout, reports its received count,
+mismatches, checksum state, and PE/OE/FE flags, and waits for an ACK before the
+next case. It then checks one continuous 133-byte Juku-to-host packet and
+restores 9600. Partial JSON is saved after every case, so a mid-run cable or
+power loss preserves the completed evidence.
+
+The exact sweep passes at 9600 and 19,200 in cosim with a wire-rate 8251 model
+that latches real one-byte receive overrun. It also passes with character time
+scaled to a conservative 1.5 MHz CPU, below CS00015's measured approximately
+1.70 MHz execution rate. A negative control deliberately truncates the
+unpaced 133-byte case: that case reports timeout while every later paced case,
+the reverse packet, and the 9600 return still pass. This proves that foreground
+polling has sufficient modeled throughput and that the bench test will not
+wedge on its first lost byte.
+
+The 2026-08-12 recoverable physical sweep on CS00015 received the target's
+`BRD!`, then passed exact unpaced host-to-Juku payloads of 1, 2, 4, and 16
+bytes. The 8, 32, 64, and 133-byte cases stopped after clean prefixes of 7, 9,
+12, and 6 bytes, with no mismatches and no 8251 PE/OE/FE flags. A continuous
+133-byte Juku-to-host packet passed exactly, while its following single-byte
+ACK was not received. This proves that 19,200 and the 8O1 framing work for
+short traffic in both directions, but the physical receiver becomes silent at
+a history-dependent point until a complete 8251 reset.
+
+That BAUDTEST build unnecessarily rewrote the 8251 command `34h` after every
+clean receive. The revised test no longer touches the command register per byte
+and preserves errors for the report. Its physical pacing path also uses
+`tcdrain(3)` before sleeping, so requested gaps reach the wire rather than
+merely separating host `write(2)` calls.
+
+The revised physical run rejected both candidate explanations. Only its
+two-byte unpaced case passed; even 133-byte cases with 0.75, 1.25, and 2.0 ms
+wire gaps failed after 0, 0, and 2 payload bytes. There were again no
+mismatches or PE/OE/FE flags, the reverse 133-byte packet passed, and the final
+host ACK failed. The problem is therefore not target polling throughput or the
+per-byte command writes. It is now localized to the direction-specific
+high-speed receive boundary: external converter/cable integrity, D104
+К170УП2 receiver and its supplies/threshold controls, D104.13-to-D11.3, or the
+D11 receive half. The stable resident-disk default remains 9600.
+
+CS00014 (Janet source station 09) provides the independent control. It passed
+every BAUDTEST case at 9600, including unpaced and paced 133-byte transfers in
+both directions, with zero errors. At 19,200 it reproduced the receive-only
+failure while sending the reverse 133-byte packet exactly. Adding the same
+CALL/RET recovery gap used between every original EktaSoft 8251 control write
+did not change the failure. The common CP2102/MAX/cable chain separately works
+with DOSRAVI at 57,600, but that is 8N1 rather than Janet's 8O1. A 19,200 8N1
+BAUDTEST was therefore used as the parity-specific discriminator.
+
+The 19,200/8N1 discriminator also failed in the same direction. Its first one-
+and two-byte frames passed, proving both ends applied 8N1, but longer
+host-to-Juku traffic stopped after short clean prefixes; Juku-to-host 133 bytes
+still passed exactly. Parity is ruled out.
+
+The first single-boot rate ladder attempted D57 x16 divisors 7, 6, and 5
+(approximately 10,989, 12,821, and 15,385 baud). It never reached a test case:
+the classic CP2102 accepted and echoed each requested integer through its USB
+control request but put the first request into its 14,400-baud hardware bucket,
+corrupting the target's `BRD!` marker identically on two attempts. Linux
+`termios2/BOTHER` likewise reported the driver's substituted rates. This is a
+host-adapter limitation, not CS00014 evidence.
+
+The usable one-boot ladder instead selects CP2102-native 14,400, 16,000, and
+19,200 baud. D57 stays in the stock LSB-only BCD mode with divisors 85, 77,
+and 64; the 8251 switches from x16 to its documented x1 asynchronous mode,
+giving target rates 14,479.6 (+0.55%), 15,984.0 (-0.10%), and 19,230.8
+(+0.16%). Each rate runs the same eleven receive cases and reverse 133-byte
+packet before the test restores 9600/x16. This changes the 8251 sampling mode,
+so it is a rate-boundary discriminator rather than a pure x16 comparison.
+
+CS00014 reached the 14,400/x1 stage and sent its `BRD!` marker and reverse
+133-byte frame correctly. The one-byte host frame passed; the correct two- and
+four-byte frames carried PE (`08h`), after which frame synchronization was
+lost. The run never reached 16,000 or 19,200. This is evidence that x1 is a
+poor operating mode for this physical asynchronous path, not a rate threshold.
+The partial capture is `cs00014-baudtest-ladder-supported.json`.
+
+A replacement external serial cable then repeated the decisive controls. At
+9600/8O1 every one of the eleven host-to-Juku cases, the reverse 133-byte
+packet, and the final ACK passed with zero errors
+(`cs00014-baudtest-9600-cable-control.json`). At 19,200/x16/8O1 the one-byte
+case passed, all longer receive cases stopped after short clean prefixes, the
+reverse 133-byte packet passed, and the final ACK failed
+(`cs00014-baudtest-19200-x16-new-cable.json`). The result is therefore not
+specific to the first cable.
+
+An attempted 19,200/x64 discriminator is deliberately not shipped as a test
+image. It retained EktaSoft's D57 mode-3 programming and used divisor 1; the
+8253 specifies a minimum count of 2 in modes 2 and 3, so that setup cannot
+generate a valid periodic clock. Physical CS00014 returned four zero bytes
+instead of `BRD!`, and no cases ran. The simulator had incorrectly accepted
+the divisor and was fixed to reject this boundary. Consequently that bench
+attempt says nothing about the receiver, and the x64 variant was removed.
+
+For the corrected monitorless CS00015 rate test (station 08), run:
+
+```sh
+../8080-cosim/tools/janet_baud_test.py --client 8 --server 2 \
+    --result cs00015-baudtest-19200-revised.json /dev/ttyUSB0 \
+    juku-net-baudtest-system.bin juku-net-smoke.img
+```
+
+Then reset and type `TN0201` without Enter. No ROM change or CP/M command is
+needed. On failure, leave the machine on until the sweep completes: the JSON
+records the clean burst envelope, pacing threshold, receive count, checksum,
+and 8251 error bits. A completely silent server still leaves the ordinary
+network BIOS in its polled receive loop; a bounded transaction timeout remains
+a separate resident-BIOS robustness improvement.
 
 The CP/Mish default ZCPR1/ZSDOS pair is not the bring-up kernel: ZSDOS states
 that it requires a Z80, and ZCPR1 emits Z80-only opcodes. The first Juku build

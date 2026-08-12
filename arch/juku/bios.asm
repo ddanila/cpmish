@@ -111,7 +111,7 @@ BOOT:
         db      01bh,'L'
         db      '52K CP/Mish-Juku 2.2',13,10
 .ifdef NETWORK
-        db      'A: - Janet disk, 19200',13,10,10,0
+        db      'A: - Janet disk, 9600',13,10,10,0
 .else
         db      'A:, B: - 386K floppy',13,10,10,0
 .endif
@@ -280,6 +280,8 @@ NETRWDISK:
         inr     a
         sta     SEQUENCE
 NETRETRY:
+        mvi     a,035h
+        out     USARTCTL      ; TxEN + RxE + error reset + RTS
         mvi     b,0
         mvi     a,'J'
         call    NETSEND
@@ -311,6 +313,20 @@ NETWRITE:
 NETHEADER:
         mov     a,b
         call    NETTX
+
+        ; The physical Janet interface is half-duplex. The stock NetBios
+        ; clears TxEN before receiving and restores it only while talking.
+        ; D11 TxEMPTY is unconnected on Juku, so wait longer than one 8O1
+        ; character at 19,200 baud before disabling the transmitter. TxRDY
+        ; alone only proves that the holding register has emptied.
+        lxi     d,400
+NETTXDRAIN:
+        dcx     d
+        mov     a,d
+        ora     e
+        jnz     NETTXDRAIN
+        mvi     a,034h
+        out     USARTCTL      ; receive enabled, transmitter released
 
 NETSYNC:
         call    NETRX
@@ -381,7 +397,7 @@ NETRX:
 
 NETINIT:
         di
-        mvi     a,4
+        mvi     a,8
         out     PIT3COUNT0
         xra     a
         out     USARTCTL
@@ -391,8 +407,8 @@ NETINIT:
         out     USARTCTL
         mvi     a,05eh
         out     USARTCTL
-        mvi     a,035h
-        out     USARTCTL
+        mvi     a,034h
+        out     USARTCTL      ; receive-only until NETRWDISK owns a Tx turn
         in      USARTDATA
 NETREADY:
         call    NETRX

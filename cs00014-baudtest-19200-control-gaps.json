@@ -1,0 +1,142 @@
+{
+  "test_baud": 19200,
+  "host_to_juku": [
+    {
+      "case": 0,
+      "length": 1,
+      "pacing_ms": 0.0,
+      "expected": 1,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 1,
+      "length": 2,
+      "pacing_ms": 0.0,
+      "expected": 2,
+      "received": 2,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": true,
+      "protocol": 0,
+      "pass": true
+    },
+    {
+      "case": 2,
+      "length": 4,
+      "pacing_ms": 0.0,
+      "expected": 4,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 3,
+      "length": 8,
+      "pacing_ms": 0.0,
+      "expected": 8,
+      "received": 5,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 4,
+      "length": 16,
+      "pacing_ms": 0.0,
+      "expected": 16,
+      "received": 9,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 5,
+      "length": 32,
+      "pacing_ms": 0.0,
+      "expected": 32,
+      "received": 8,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 6,
+      "length": 64,
+      "pacing_ms": 0.0,
+      "expected": 0,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 7,
+      "length": 133,
+      "pacing_ms": 0.0,
+      "expected": 133,
+      "received": 7,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 8,
+      "length": 133,
+      "pacing_ms": 0.75,
+      "expected": 0,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 9,
+      "length": 133,
+      "pacing_ms": 1.25,
+      "expected": 0,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    },
+    {
+      "case": 10,
+      "length": 133,
+      "pacing_ms": 2.0,
+      "expected": 0,
+      "received": 0,
+      "mismatches": 0,
+      "usart_errors": 0,
+      "checksum_ok": false,
+      "protocol": 1,
+      "pass": false
+    }
+  ],
+  "juku_to_host": {
+    "packet_ok": true
+  },
+  "return_handshake": "440021",
+  "pass": false
+}

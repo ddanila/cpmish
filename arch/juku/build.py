@@ -33,6 +33,29 @@ zmac(
     ],
     relocatable=False,
 )
+zmac(
+    name="baudtest",
+    src="./baudtest.asm",
+    relocatable=False,
+)
+zmac(
+    name="baudtest-9600",
+    src="./baudtest.asm",
+    defines=["TEST9600"],
+    relocatable=False,
+)
+zmac(
+    name="baudtest-8n1",
+    src="./baudtest.asm",
+    defines=["TEST8N1"],
+    relocatable=False,
+)
+zmac(
+    name="baudtest-ladder",
+    src="./baudtest.asm",
+    defines=["TESTLADDER"],
+    relocatable=False,
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -86,6 +109,15 @@ simplerule(
     ],
     label="JUKUNETSMOKESYSTEM",
 )
+simplerule(
+    name="systemfile-net-baudtest",
+    ins=[".+memory-net"],
+    outs=["=juku-net-baudtest-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]} BAUDTEST",
+    ],
+    label="JUKUNETBAUDTESTSYSTEM",
+)
 
 readme = unix2cpm(name="readme", src="README.md")
 
@@ -111,8 +143,57 @@ net_smoke_diskimage = diskimage(
     bootfile=".+systemfile-net-smoke",
     size=409600,
     map={
+        "baudtest.com": ".+baudtest",
         "smoke.com": ".+smoke",
     },
+)
+net_baudtest_9600_diskimage = diskimage(
+    name="net-baudtest-9600-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-baudtest",
+    size=409600,
+    map={
+        "baudtest.com": ".+baudtest-9600",
+    },
+)
+net_baudtest_8n1_diskimage = diskimage(
+    name="net-baudtest-8n1-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-baudtest",
+    size=409600,
+    map={
+        "baudtest.com": ".+baudtest-8n1",
+    },
+)
+net_baudtest_ladder_diskimage = diskimage(
+    name="net-baudtest-ladder-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-baudtest",
+    size=409600,
+    map={
+        "baudtest.com": ".+baudtest-ladder",
+    },
+)
+simplerule(
+    name="net-baudtest-9600-volume",
+    ins=[net_baudtest_9600_diskimage],
+    outs=["=juku-net-baudtest-9600.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETBAUDTEST9600VOLUME",
+)
+simplerule(
+    name="net-baudtest-8n1-volume",
+    ins=[net_baudtest_8n1_diskimage],
+    outs=["=juku-net-baudtest-8n1.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETBAUDTEST8N1VOLUME",
+)
+simplerule(
+    name="net-baudtest-ladder-volume",
+    ins=[net_baudtest_ladder_diskimage],
+    outs=["=juku-net-baudtest-ladder.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETBAUDTESTLADDERVOLUME",
 )
 simplerule(
     name="net-smoke-volume",
