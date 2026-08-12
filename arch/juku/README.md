@@ -363,6 +363,17 @@ instead of `BRD!`, and no cases ran. The simulator had incorrectly accepted
 the divisor and was fixed to reject this boundary. Consequently that bench
 attempt says nothing about the receiver, and the x64 variant was removed.
 
+The next session is measurement-led rather than another framing sweep. With
+the same BAUDTEST image, capture X3.4/D104.4 and D104.13/D11.3 concurrently at
+9600 and 19,200, then capture D57.10 and D11.25 at divisors 8 and 4. Also
+measure D104 pins 15 (+5 V), 16 (+12 V), and the four threshold-control pins.
+This separates input amplitude/grounding, D104 conversion, the TTL RxD node,
+and the D11 receive clock before any IC is condemned. The full evidence,
+expected waveforms, decision tree, and lower-priority follow-ups are maintained
+in `../../../8080-cosim/docs/juku-serial-19200-investigation.md` in a side-by-side
+checkout. Until those captures exist, 9600/8O1 remains the only supported
+physical resident-disk rate.
+
 For the corrected monitorless CS00015 rate test (station 08), run:
 
 ```sh
