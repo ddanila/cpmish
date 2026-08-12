@@ -2,3 +2,4 @@
 .obj/
 *.img
 /juku-system.bin
+/juku-net-system.bin

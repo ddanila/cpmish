@@ -13,5 +13,6 @@ export(
         "nano-z80.img": "arch/nano-z80+diskimage",
         "juku.img": "arch/juku+diskimage",
         "juku-system.bin": "arch/juku+systemfile",
+        "juku-net-system.bin": "arch/juku+systemfile-net",
     },
 )

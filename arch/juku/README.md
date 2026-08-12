@@ -153,25 +153,55 @@ Juku with no local floppy drive whose A: volume remains attached to the host
 for the whole CP/M session. The local-floppy image stays available as the
 reference build and as a way to isolate network faults from filesystem faults.
 
-The implementation is deliberately two-stage:
+The implemented mode is deliberately two-stage:
 
-1. Stock Ekta 3.7 NetBios loads `juku-system.bin` using Janet 1.2 at its proven
+1. Stock Ekta 3.7 NetBios loads `juku-net-system.bin` using Janet 1.2 at its proven
    divisor 8 setting: nominal 9600 baud, 8 data bits, odd parity, one stop.
 2. The network BIOS takes over the same D11 8251/D57 channel-0 path, programs
    divisor 4 for nominal 19,200 baud, and exposes a host-backed drive A.
 
 BIOS requests use CP/M's native 128-byte record size. Each transaction carries
 an operation, sequence number, drive, 16-bit track, logical sector, payload
-when writing, and checksum. Replies echo the sequence and status; bounded
-timeout/retry makes reads recoverable and makes duplicate writes idempotent on
-the host. The host uses the existing flat 400 KiB volume layout, not WD1793
-commands or raw double-sided offsets.
+when writing, and checksum. Replies echo the sequence and status; malformed or
+out-of-sequence replies restart the request, and duplicate writes are
+idempotent on the host. The host uses the existing flat 400 KiB volume layout,
+not WD1793 commands or raw double-sided offsets.
 
-The rate boundary is a design target, not yet a physical-machine claim. Stock
-boot is already simulator-proven at 9600. The resident protocol will be tested
-at nominal 19,200 in cosim, then tried on CS00015; its D57 divisor will remain a
-build-time constant so hardware experiments can fall back or explore faster
-rates without redesigning the protocol.
+Build and test both variants with:
+
+```sh
+make -j"$(nproc)" juku-system.bin juku.img juku-net-system.bin
+make juku-cosim-check
+make juku-net-cosim-check
+```
+
+`juku-net-system.bin` is the diskless network image. The network regression
+boots it through stock Janet with no FDC image attached to cosim, observes D57
+divisor 8 then 4, runs `DIR` using 34 remote reads, and runs a writable `SAVE 1
+TEST.COM` session using 38 reads and four writes. Both sessions have zero
+protocol retries, reach the framebuffer `A>` oracle, and the saved host volume
+reopens through cpmtools with a 256-byte `TEST.COM`.
+
+For physical use, first extract/copy the generated flat volume (the 400 KiB
+`+flatdiskimage.img` build artifact) to a convenient working path. Start:
+
+```sh
+../8080-cosim/tools/janet_disk_server.py /dev/ttyUSB0 \
+    juku-net-system.bin juku-flat.img --writable
+```
+
+Then type `TN0201` with no Enter at the Juku ROM prompt. The server bootstraps
+at 9600/8O1, switches its serial device to 19,200/8O1, repeatedly emits the
+`NR` resident-ready marker until the BIOS synchronizes, and then serves A:.
+Without `--writable`, write requests return a CP/M disk error and the host image
+is unchanged.
+
+The 19,200 rate is simulator-proven but is not yet a physical-machine claim.
+It will be tried on CS00015. The D57 divisor is kept as one BIOS constant so
+hardware experiments can fall back or explore faster rates without redesigning
+the protocol. The first implementation retries checksum/sequence failures, but
+a completely silent server still leaves the BIOS in its polled receive loop;
+a bounded timeout is the next robustness improvement.
 
 The CP/Mish default ZCPR1/ZSDOS pair is not the bring-up kernel: ZSDOS states
 that it requires a Z80, and ZCPR1 emits Z80-only opcodes. The first Juku build

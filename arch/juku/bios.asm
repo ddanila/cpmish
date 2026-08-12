@@ -61,6 +61,12 @@ MEMADR         equ     FBI+20
 DKRD           equ     011h
 DKWR           equ     012h
 
+.ifdef NETWORK
+USARTDATA      equ     008h
+USARTCTL       equ     009h
+PIT3COUNT0     equ     018h
+.endif
+
 ; Cold start. Bootstrap has already loaded the resident image.
 BOOT:
         lxi     sp,0100h
@@ -72,18 +78,27 @@ BOOT:
         inx     h
         mov     m,d
 
-        ; Configure two 80-track 386K drives exactly as EKDOS 2.30 does.
+        ; Configure 80-track 386K drives exactly as EKDOS 2.30 does.
         xra     a
         sta     TYP
         sta     TYPEA
+.ifdef NETWORK
+        sta     SEQUENCE
+        call    NETINIT
+.else
         sta     TYPEB
+.endif
         mvi     a,80
         sta     SIZEA
+.ifndef NETWORK
         sta     SIZEB
+.endif
         sta     SIZE
         mvi     a,1
         sta     RATEA
+.ifndef NETWORK
         sta     RATEB
+.endif
         sta     RATE
 
         xra     a
@@ -94,7 +109,11 @@ BOOT:
         call    PRINT
         db      01bh,'L'
         db      '52K CP/Mish-Juku 2.2',13,10
+.ifdef NETWORK
+        db      'A: - Janet disk, 19200',13,10,10,0
+.else
         db      'A:, B: - 386K floppy',13,10,10,0
+.endif
         jmp     GOCPM
 
 ; Resident CCP is outside the TPA and remains valid, so warm boot does not
@@ -192,7 +211,11 @@ HOME1:
 SELDSK:
         lxi     h,0
         mov     a,c
+.ifdef NETWORK
+        cpi     1
+.else
         cpi     2
+.endif
         rnc
 
         sta     SEKDSK
@@ -216,6 +239,8 @@ SELTYPE:
 SETTRK:
         mov     a,c
         sta     SEKTRK
+        mov     a,b
+        sta     SEKTRK+1
         ret
 
 SETSEC:
@@ -231,11 +256,145 @@ SETDMA:
 
 READ:
         mvi     a,DKRD
+.ifdef NETWORK
+        jmp     NETRWDISK
+.else
         jmp     RWDISK
+.endif
 
 WRITE:
         mvi     a,DKWR
 
+.ifdef NETWORK
+NETRWDISK:
+        sta     REQUEST
+        lda     SEQUENCE
+        inr     a
+        sta     SEQUENCE
+NETRETRY:
+        mvi     b,0
+        mvi     a,'J'
+        call    NETSEND
+        mvi     a,'D'
+        call    NETSEND
+        lda     REQUEST
+        call    NETSEND
+        lda     SEQUENCE
+        call    NETSEND
+        lda     SEKDSK
+        call    NETSEND
+        lda     SEKTRK
+        call    NETSEND
+        lda     SEKTRK+1
+        call    NETSEND
+        lda     SEKSEC
+        call    NETSEND
+        lda     REQUEST
+        cpi     DKWR
+        jnz     NETHEADER
+        lhld    MEMADR
+        mvi     d,128
+NETWRITE:
+        mov     a,m
+        call    NETSEND
+        inx     h
+        dcr     d
+        jnz     NETWRITE
+NETHEADER:
+        mov     a,b
+        call    NETTX
+
+NETSYNC:
+        call    NETRX
+        cpi     'D'
+        jnz     NETSYNC
+        mvi     b,'D'
+        call    NETRX
+        xri     'J'
+        jnz     NETSYNC
+        mov     a,b
+        xri     'J'
+        mov     b,a
+        call    NETRX
+        mov     c,a
+        xra     b
+        mov     b,a
+        lda     SEQUENCE
+        cmp     c
+        jnz     NETRETRY
+        call    NETRX
+        mov     c,a
+        xra     b
+        mov     b,a
+        lda     REQUEST
+        cpi     DKWR
+        jz      NETCHECK
+        lhld    MEMADR
+        mvi     d,128
+NETREAD:
+        call    NETRX
+        mov     m,a
+        xra     b
+        mov     b,a
+        inx     h
+        dcr     d
+        jnz     NETREAD
+NETCHECK:
+        call    NETRX
+        xra     b
+        jnz     NETRETRY
+        mov     a,c
+        ora     a
+        rz
+        mvi     a,1
+        ret
+
+NETSEND:
+        mov     c,a
+        xra     b
+        mov     b,a
+        mov     a,c
+NETTX:
+        mov     c,a
+NETTXWAIT:
+        in      USARTCTL
+        ani     1
+        jz      NETTXWAIT
+        mov     a,c
+        out     USARTDATA
+        ret
+
+NETRX:
+        in      USARTCTL
+        ani     2
+        jz      NETRX
+        in      USARTDATA
+        ret
+
+NETINIT:
+        di
+        mvi     a,4
+        out     PIT3COUNT0
+        xra     a
+        out     USARTCTL
+        out     USARTCTL
+        out     USARTCTL
+        mvi     a,040h
+        out     USARTCTL
+        mvi     a,05eh
+        out     USARTCTL
+        mvi     a,035h
+        out     USARTCTL
+        in      USARTDATA
+NETREADY:
+        call    NETRX
+        cpi     'N'
+        jnz     NETREADY
+        call    NETRX
+        cpi     'R'
+        jnz     NETREADY
+        ret
+.else
 RWDISK:
         sta     REQUEST
         ; Match EKDOS's VIARV retry budget. Physical writes can require a
@@ -250,6 +409,7 @@ RWDISK:
         rz
         mvi     a,1
         ret
+.endif
 
 SECTRAN:
         xchg
@@ -304,6 +464,9 @@ DPB0:   dw      40
         dw      2
 
 REQUEST: db     0
+.ifdef NETWORK
+SEQUENCE: db    0
+.endif
 
 ; These words must remain visible when a monitor call returns with the ROM
 ; overlay active. EKDOS therefore keeps them above the overlay window rather

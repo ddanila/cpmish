@@ -13,6 +13,11 @@ zmac(
     src="./bios.asm",
     deps=["include/cpm.lib"],
 )
+zmac(
+    name="bios-net",
+    src="./bios-net.asm",
+    deps=["include/cpm.lib", "./bios.asm"],
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -24,6 +29,15 @@ ld80(
         CBASE: ["third_party/dr/ccp"],
         FBASE: ["third_party/dr/bdos"],
         BBASE: [".+bios"],
+    },
+)
+ld80(
+    name="memory-net",
+    address=CBASE,
+    objs={
+        CBASE: ["third_party/dr/ccp"],
+        FBASE: ["third_party/dr/bdos"],
+        BBASE: [".+bios-net"],
     },
 )
 
@@ -38,6 +52,15 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
     ],
     label="JUKUSYSTEM",
+)
+simplerule(
+    name="systemfile-net",
+    ins=[".+memory-net"],
+    outs=["=juku-net-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETSYSTEM",
 )
 
 readme = unix2cpm(name="readme", src="README.md")
