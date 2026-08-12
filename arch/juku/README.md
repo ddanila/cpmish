@@ -99,6 +99,15 @@ Build the Juku outputs from the repository root:
 make juku-system.bin juku.img
 ```
 
+The disk also contains `DIAG.COM`, a CP/M wrapper around the shared
+non-destructive RAM cell test from the pinned `juku-common` submodule. It tests
+private scratch storage, restores every byte, and reports `PASS` or `FAIL`.
+Initialize dependencies after cloning with:
+
+```sh
+git submodule update --init --recursive
+```
+
 The outputs are:
 
 - `juku-system.bin`: the established 10 KiB JUKUSYS/SYSGEN format, suitable

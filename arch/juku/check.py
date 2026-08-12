@@ -99,7 +99,7 @@ def main() -> None:
         stdout=subprocess.PIPE,
         text=True,
     ).stdout.lower()
-    for filename in ("readme.txt", "asm.com", "copy.com", "dump.com",
+    for filename in ("readme.txt", "asm.com", "copy.com", "diag.com", "dump.com",
                      "stat.com", "submit.com"):
         require(filename in listing, f"{filename} is absent from the volume")
 

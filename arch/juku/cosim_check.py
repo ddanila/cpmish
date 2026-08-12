@@ -19,8 +19,9 @@ TRACK_SIZE = 10 * 512
 TRACKS = 80
 EXPECTED_VRAM = {
     "VER": "1ed8eb6710aa6c3189454110de5555c0b1b8de7328ef0777576fd21181f6e889",
-    "DIR": "87b4cee2c2fae4d49bb6ad28b86385d6af8688340d0e29ddd515b923acc3f89a",
-    "STAT": "b27e2611254bcd5608e9a74bec5bfe2d97c7a24b5de7b29982818f45d5ba9194",
+    "DIR": "468ba5ff06e4dd63cfa8c1bc9a8214e3226a33ec40ea211d61e7649e6a3ba20c",
+    "DIAG": "c90bf6be3ddf357efde10870c17713ca751ef0c4c57f28e9037d7c1d90e49718",
+    "STAT": "9582fa7204ac14a7ca5c5d55f91dd164fe34fc234bda57eaa2aa77e154d4bce8",
     "SAVE 1 TEST.COM": "e3fa93fc3b0f513631a00d47be64e956a36d39c4c77d89f9f6b200fb65a0e9ae",
 }
 
@@ -104,6 +105,7 @@ def main() -> None:
         build_trace(trace)
         run_case(trace, work, "VER")
         run_case(trace, work, "DIR")
+        run_case(trace, work, "DIAG")
         run_case(trace, work, "STAT")
         saved = run_case(trace, work, "SAVE 1 TEST.COM")
 

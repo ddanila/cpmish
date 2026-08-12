@@ -18,6 +18,12 @@ zmac(
     src="./bios-net.asm",
     deps=["include/cpm.lib", "./bios.asm"],
 )
+zmac(
+    name="diag",
+    src="./diag.asm",
+    deps=["third_party/juku-common/diag/memory.asm"],
+    relocatable=False,
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -75,6 +81,7 @@ flatdiskimage = diskimage(
         "asm.com": "cpmtools+asm",
         "copy.com": "cpmtools+copy",
         "dump.com": "cpmtools+dump",
+        "diag.com": ".+diag",
         "stat.com": "cpmtools+stat",
         "submit.com": "cpmtools+submit",
     },
