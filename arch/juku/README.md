@@ -56,16 +56,68 @@ The initial Juku branch point is upstream commit
 that commit builds all eight upstream disk images successfully with ACK's
 CP/M target, `cpmtools` 2.23, and `libz80ex` 1.1.21.
 
+## Current implementation
+
+The first CP/M 2.2 bring-up system is now built entirely from source. It uses:
+
+- Digital Research's Intel 8080 CCP at `B400h`;
+- Digital Research's Intel 8080 BDOS at `BC00h`, entry `BC06h`;
+- the Juku BIOS at `CA00h`;
+- the Ekta 3.7 public monitor vectors for console and floppy I/O; and
+- two 386K floppy drives, A and B. A RAM disk is deliberately not part of the
+  first bring-up system.
+
+All three resident components are assembled in zmac's Intel 8080 mode. The
+Digital Research sources additionally use its DRI source-dialect mode. This
+avoids the Z80-only ZCPR1/ZSDOS default during hardware bring-up.
+
+Build the Juku outputs from the repository root:
+
+```sh
+make -j"$(nproc)" juku-system.bin juku.img
+```
+
+The outputs are:
+
+- `juku-system.bin`: the established 10 KiB JUKUSYS/SYSGEN format, suitable
+  for Janet network loading;
+- `juku.img`: an 800 KiB, double-sided raw image accepted by the Juku emulator
+  and physical-disk tooling. Side 0 contains the bootable 386K volume; side 1
+  is erased and reserved for a future independent volume.
+
+The disk layout has one easily missed distinction. CP/M's 386K volume is 80
+tracks on one side, with 10 physical 512-byte sectors per track. Raw Juku disk
+captures are ordered by cylinder and then head. Consequently the volume's
+second logical track starts at raw offset `2800h`, and the directory starts at
+`5000h`, not at `2800h`. `mksides.py` performs this conversion explicitly.
+The zero-based cpmtools skew table `0,2,4,6,8,1,3,5,7,9` is the 512-byte
+equivalent of the BIOS's 40-entry 128-byte `TRANS` table.
+
+`check.py`, run automatically while making `juku.img`, verifies the system
+container, BIOS placement, system tracks, side interleave, erased second side,
+and the expected files through cpmtools.
+
+## Validation
+
+On 2026-08-12 the generated raw image booted through the unmodified Ekta 3.7
+ROM in `8080-cosim`. The run followed the monitor's `TDD` boot path, performed
+10,752 WD1793 data-register reads, executed the new CCP/BDOS/BIOS, rendered the
+`52K CP/Mish-Juku 2.2` banner, and reached an `A>` prompt. This proves the
+initial cold-boot path and the ROM console/floppy boundary. Filesystem command,
+write, warm-boot, Janet network-boot, and physical-machine tests remain the
+next validation stages.
+
 ## Port plan
 
-1. Add a reproducible, strictly 8080-compatible Juku CP/M 2.2 system as the
-   bring-up baseline.
-2. Implement console, floppy, warm boot, and optional RAM-disk support using
-   the documented Juku ROM interfaces and EKDOS 2.30 disk geometry.
-3. Generate both a physical Juku disk image and a Janet network-boot image.
-4. Test console, filesystem, warm boot, and existing Juku applications in
-   `8080-cosim`, then on CS00015.
-5. Reuse the proven hardware layer for a nonbanked CP/M Plus 3.1 port.
+1. ~~Add a reproducible, strictly 8080-compatible Juku CP/M 2.2 system as the
+   bring-up baseline.~~
+2. Validate filesystem reads/writes, console input, transient commands, and
+   warm boot in `8080-cosim`.
+3. Validate `juku-system.bin` through the existing Janet 19,200-baud network
+   bootstrap and add the cross-repository regression.
+4. Test the image on CS00015, first through Janet and then from physical media.
+5. Add optional RAM-disk support after the floppy-backed baseline is stable.
+6. Reuse the proven hardware layer for a nonbanked CP/M Plus 3.1 port.
 
 The CP/Mish default ZCPR1/ZSDOS pair is not the bring-up kernel: ZSDOS states
 that it requires a Z80, and ZCPR1 emits Z80-only opcodes. The first Juku build

@@ -1,3 +1,4 @@
 # keep artifacts out of github
 .obj/
 *.img
+/juku-system.bin

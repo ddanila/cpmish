@@ -44,6 +44,7 @@ Currently it supports these platforms:
   - [the Brother PN-8510MDS SuperPowerNote laptop (and probably others)](arch/brother/pn8510/README.md)
   - [the Brother PN-8800FXB SuperPowerNote laptop (and probably others)](arch/brother/pn8800/README.md)
   - [the nano-z80 SoC for the Tang Nano 20k FPGA board](arch/nano-z80/README.md)
+  - [the Juku E5101/E5104](arch/juku/README.md) (on the `juku` branch)
 
 (Some of these are pretty stale due to difficulty of testing and may not work.
 Later entries are newer! If you have any problems, please report bugs.)
@@ -198,4 +199,3 @@ Specifically:
 	accreted over the years but is mostly a do-what-thou-wilt license
 	equivalent to 2-clause BSD. See `third_party/dr/COPYING.md` for more
 	information.
-
