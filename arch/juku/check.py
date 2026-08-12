@@ -16,6 +16,7 @@ IMAGE_SIZE = 2 * SIDE_SIZE
 CBASE = 0xB400
 BBASE = 0xCA00
 ROOT = Path(__file__).resolve().parents[2]
+CCP_SOURCE = ROOT / "third_party" / "dr" / "ccp" / "os2ccp.asm"
 
 
 def require(condition: bool, message: str) -> None:
@@ -23,11 +24,30 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(message)
 
 
+def dri_comment(line: str) -> str:
+    """Return text after a semicolon which is outside a quoted character."""
+    quoted = False
+    for index, character in enumerate(line):
+        if character == "'":
+            quoted = not quoted
+        elif character == ";" and not quoted:
+            return line[index + 1 :]
+    return ""
+
+
 def main() -> None:
     if len(sys.argv) != 4:
         raise SystemExit(f"usage: {sys.argv[0]} SYSTEM FLAT-SIDE RAW-IMAGE")
 
     system_path, flat_path, raw_path = map(Path, sys.argv[1:])
+
+    # In DRI syntax `!` separates statements and `;` starts a comment. The
+    # imported CCP once had intended statements hidden after comment markers.
+    for lineno, line in enumerate(CCP_SOURCE.read_text().splitlines(), 1):
+        comment = dri_comment(line)
+        require("!" not in comment,
+                f"CCP line {lineno} contains a statement separator in a comment")
+
     system = system_path.read_bytes()
     flat = flat_path.read_bytes()
     raw = raw_path.read_bytes()

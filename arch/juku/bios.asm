@@ -238,7 +238,9 @@ WRITE:
 
 RWDISK:
         sta     REQUEST
-        mvi     a,1
+        ; Match EKDOS's VIARV retry budget. Physical writes can require a
+        ; retry after the controller's read-before-write/cache transition.
+        mvi     a,10
         sta     RCOUNT
         lda     REQUEST
         call    ROMCALL
@@ -302,12 +304,13 @@ DPB0:   dw      40
         dw      2
 
 REQUEST: db     0
-SAVEHL:  dw     0
-SAVESP:  dw     0
 
-; The monitor trampoline's private stack lies below the resident CCP and above
-; the monitor's D600 work area. It is never part of a transient program.
-ROMSTACK equ    0d2fch
+; These words must remain visible when a monitor call returns with the ROM
+; overlay active. EKDOS therefore keeps them above the overlay window rather
+; than inside the CA00h BIOS image.
+SAVEHL   equ    0d2feh
+SAVESP   equ    0d2fch
+ROMSTACK equ    SAVESP
 
 ; BDOS scratch space is intentionally outside the initialized 1 KiB BIOS
 ; image, matching the established EKDOS memory map.

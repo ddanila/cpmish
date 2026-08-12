@@ -220,7 +220,7 @@ readcom:
 			call break$key! jz noread
 			call del$sub! jmp ccp ;break key depressed
 			;
-	nosub:	;no submit file! call del$sub
+	nosub:	call del$sub ;no submit file
 	;translate to upper case, store zero at end
 	call saveuser ;user # save in case control c
 	mvi c,rbuff! lxi d,maxlen! call bdos
@@ -341,8 +341,8 @@ fillfcb:
 			inx h! cpi '*'! jnz setnam1 ;must be ?'s
 			mvi m,'?'! jmp setnam2 ;to dec count
 		;
-		setnam1: mov m,a ;store character to fcb! inx d
-		setnam2: dcr b ;count down length! jnz setnam0
+		setnam1: mov m,a! inx d ;store character to fcb
+		setnam2: dcr b! jnz setnam0 ;count down length
 		;
 	;end of name, truncate remainder
 	trname: call delim! jz setty ;set type field if delimiter
@@ -355,7 +355,7 @@ fillfcb:
 		inx d ;past the ., to the file type field
 		setty0: ;set the field from the command buffer
 			call delim! jz padty! inx h! cpi '*'! jnz setty1
-			mvi m,'?' ;since * specified! jmp setty2
+			mvi m,'?'! jmp setty2 ;since * specified
 			;
 		setty1: ;not a *, so copy to type field
 			mov m,a! inx d
@@ -378,7 +378,8 @@ fillfcb:
 		;recover the start address of the fcb and count ?'s
 		pop h! lxi b,11 ;b=0, c=8+3
 		scnq: inx h! mov a,m! cpi '?'! jnz scnq0
-		;? found, count it in b! inr b
+		; ? found, count it in b
+		inr b
 		scnq0: dcr c! jnz scnq
 		;
 		;number of ?'s in c, move to a and return with flags set
@@ -399,7 +400,7 @@ intvec:
 intrinsic:
 	;look for intrinsic functions (comfcb has been filled)
 	lxi h,intvec! mvi c,0 ;c counts intrinsics as scanned
-	intrin0: mov a,c! cpi intlen ;done with scan?! rnc
+	intrin0: mov a,c! cpi intlen! rnc ;done with scan?
 		;no, more to scan
 		lxi d,comfcb+1 ;beginning of name
 		mvi b,4 ;length of match is in b
@@ -495,7 +496,7 @@ ccp0:	;(enter here from initialization with command full)
 		conv0:	mov a,m! cpi ' '! jz conv1
 			;more to scan, convert char to binary and add
 			inx h! sui '0'! cpi 10! jnc comerr ;valid?
-			mov d,a ;save value! mov a,b ;mult by 10
+			mov d,a! mov a,b ;save value and multiply by 10
 			ani 1110$0000b! jnz comerr
 			mov a,b ;recover value
 			rlc! rlc! rlc ;*8
@@ -507,7 +508,7 @@ ccp0:	;(enter here from initialization with command full)
 		conv1:	;end of digits, check for all blanks
 			mov a,m! cpi ' '! jnz comerr ;blanks?
 			inx h! dcr c! jnz conv1
-			mov a,b ;recover value! ret
+			mov a,b! ret ;recover value
 		;
 	movename:
 		;move 3 characters from h,l to d,e addresses

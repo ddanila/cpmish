@@ -71,6 +71,15 @@ All three resident components are assembled in zmac's Intel 8080 mode. The
 Digital Research sources additionally use its DRI source-dialect mode. This
 avoids the Z80-only ZCPR1/ZSDOS default during hardware bring-up.
 
+The vendored CCP transcription had eight latent separator errors: intended
+statements followed semicolons and therefore became comments in zmac's DRI
+mode. The Juku branch restores the documented statements, including the
+filename scan loop, wildcard count, intrinsic-table bound, and numeric-parser
+steps. Without these repairs, commands were read correctly but only the first
+filename character reached the FCB (`DIR` became `D`), after which intrinsic
+lookup could loop forever. The image check rejects statement separators hidden
+in CCP comments so this class of error cannot silently return.
+
 Build the Juku outputs from the repository root:
 
 ```sh
@@ -97,22 +106,40 @@ equivalent of the BIOS's 40-entry 128-byte `TRANS` table.
 container, BIOS placement, system tracks, side interleave, erased second side,
 and the expected files through cpmtools.
 
+With the sibling `8080-cosim` checkout on its `master` branch, run the complete
+software integration check with:
+
+```sh
+make juku-cosim-check
+```
+
+Set `JUKU_COSIM_ROOT` only if that checkout is not at `../8080-cosim`. The
+check builds the C simulator, cold-boots the image through stock Ekta 3.7,
+runs `DIR`, runs transient `STAT` and returns through warm boot, then executes
+`SAVE 1 TEST.COM` on a disposable writable copy. It requires the expected
+`A>` screen after every case and extracts the resulting 256-byte file through
+cpmtools. No source disk image is modified.
+
 ## Validation
 
 On 2026-08-12 the generated raw image booted through the unmodified Ekta 3.7
 ROM in `8080-cosim`. The run followed the monitor's `TDD` boot path, performed
 10,752 WD1793 data-register reads, executed the new CCP/BDOS/BIOS, rendered the
-`52K CP/Mish-Juku 2.2` banner, and reached an `A>` prompt. This proves the
-initial cold-boot path and the ROM console/floppy boundary. Filesystem command,
-write, warm-boot, Janet network-boot, and physical-machine tests remain the
-next validation stages.
+`52K CP/Mish-Juku 2.2` banner, and reached an `A>` prompt.
+
+The repeatable integration check also passes filesystem `DIR`, transient
+`STAT`, warm boot back to `A>`, and a persistent `SAVE 1 TEST.COM`. The saved
+file survives the emulator close and extracts as 256 bytes. This validates the
+CCP parser, BDOS filesystem, BIOS sector translation, RomBios deblocking and
+write cache, and emulator write path together. Janet network boot and physical
+machine tests remain the next validation stages.
 
 ## Port plan
 
 1. ~~Add a reproducible, strictly 8080-compatible Juku CP/M 2.2 system as the
    bring-up baseline.~~
-2. Validate filesystem reads/writes, console input, transient commands, and
-   warm boot in `8080-cosim`.
+2. ~~Validate filesystem reads/writes, console input, transient commands, and
+   warm boot in `8080-cosim`.~~
 3. Validate `juku-system.bin` through the existing Janet 19,200-baud network
    bootstrap and add the cross-repository regression.
 4. Test the image on CS00015, first through Janet and then from physical media.
