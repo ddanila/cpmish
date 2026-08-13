@@ -64,28 +64,30 @@ make PREFIX="$HOME/.local" install
 On macOS, invoke the final command with `gmake` and use a Python version newer
 than the system Python if the ACK checkout requires it.
 
-### ACK on macOS/arm64: Modula-2 must be excluded
+### ACK on macOS/arm64: use the prepared fork branch
 
 Verified 2026-08-13 on macOS 15 (arm64): ACK's Modula-2 front end `em_m2`
 aborts with signal 5 wherever it is invoked, so any CP/M build target that
-needs Modula-2 fails. Nothing here uses Modula-2 -- this port is C -- so the
-fix is to drop it from the `cpm` platform in the ACK checkout before
-building. Four edits, all confined to `plat`/`examples`/`tests`:
+needs Modula-2 fails. This port is C only, so the fix is to drop Modula-2
+from the `cpm` platform. Those changes live on a branch of our fork -- clone
+it instead of upstream and no editing is needed:
 
-| File | Change |
-| --- | --- |
-| `plat/build.py` | in the shared plat deps, skip `lang/m2/libm2+all_{plat}` when `plat == "cpm"` |
-| `examples/build.py` | give `"cpm"` a C-only program list instead of `ALL` |
-| `plat/cpm/tests/build.py` | `sets=["core"]` -- `"bugs"` contains one `.mod` test (`bug-22-inn`) |
-| `Makefile` | `PLATS = cpm` (already required above) |
+```sh
+git clone -b juku https://github.com/ddanila/ack.git ack
+cd ack
+gmake PREFIX="$HOME/.local" install
+```
 
-Keep the Pascal runtime (`lang/pc/libpc`): only Modula-2 is broken, and the
-platform's own `core` tests link `pascal.o`. Dropping it produces a confusing
-`em_led: can't read .../pascal.o` failure.
+The branch (`ddanila/ack`, branch `juku`, commit `c7745fc`) carries
+`PLATS = cpm` plus three build-file changes: skip `lang/m2/libm2` for the
+`cpm` platform, give the CP/M examples a C-only program list, and reduce the
+CP/M test sets to `core` (the `bugs` set has one `.mod` test). Every other
+platform is untouched, and upstream is added as a fetch-only `upstream`
+remote there.
 
-With those in place `gmake PREFIX="$HOME/.local" install` completes and
-installs `~/.local/bin/ack` plus the `cpm` platform files. The patches are
-local to the ACK checkout; they are not carried in this repository.
+The Pascal runtime is deliberately kept: only Modula-2 is broken, and the
+platform's own `core` tests link `pascal.o`, so removing it fails with a
+confusing `em_led: can't read .../pascal.o`.
 
 ### Submodules
 
