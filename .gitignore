@@ -7,3 +7,5 @@ __pycache__/
 /juku-net-smoke-system.bin
 /juku-net-baudtest-system.bin
 /juku-net-baudtest2-system.bin
+/cs*-baudtest*.json
+/cs*-baudtest*.log

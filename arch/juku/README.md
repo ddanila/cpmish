@@ -417,11 +417,23 @@ Then reset and type `TN0201` without Enter. Use `--client 8` for CS00015.
 The JSON is rewritten after every report. On Linux the host also attempts
 `TIOCGICOUNT`, retaining driver frame/parity/overrun deltas when the USB-serial
 driver implements them; lack of those optional counters is not a test failure.
+The complete timestamped session is simultaneously printed to the terminal and
+written beside the JSON as `cs00014-baudtest2.log`; use `--log PATH` to select
+another location. Stage transitions, overall `N/68` progress, complete case
+parameters, payload/report waits, results, JSON checkpoints, counter support,
+and final 9600 confirmation are all explicit in that log.
 
 The regression runs all 68 ideal cases and a negative control that truncates
 case 7. The truncated case times out, every later case still completes, and
 the target restores 9600. Physical receive failures are diagnostic results and
 therefore do not make the host command fail; host/protocol failures do.
+
+The first CS00014 launch reached `B2S!` but the host stopped before case 0: its
+optional Linux `TIOCGICOUNT` probe supplied a 19-int buffer for the 20-int
+`serial_icounter_struct` ABI and Python rejected the kernel result. No physical
+BAUDTEST2 case ran, so this is not board evidence. The host now uses the full
+buffer, contains unsupported or malformed optional ioctls, and permanently
+regresses that boundary before the physical retry.
 
 For the corrected monitorless CS00015 rate test (station 08), run:
 
