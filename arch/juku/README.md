@@ -238,6 +238,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-smoke-system.bin juku-net-smoke.img \
     juku-net-baudtest-system.bin juku-net-baudtest-9600.img \
     juku-net-baudtest2-system.bin juku-net-baudtest2.img \
+    juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img
 make juku-cosim-check
 make juku-net-cosim-check
@@ -249,6 +250,60 @@ divisor 8, runs `DIR` using 34 remote reads, and runs a writable `SAVE 1
 TEST.COM` session using 38 reads and four writes. Both sessions have zero
 protocol retries, reach the framebuffer `A>` oracle, and the saved host volume
 reopens through cpmtools with a 256-byte `TEST.COM`.
+
+`juku-net-mode2-system.bin` is the normal interactive high-speed counterpart:
+it has no initial command, reaches the ordinary `A>` prompt, and keeps A:
+attached at the CS00014-proven 19,200/8O1 PIT mode-2/count-4 setting.
+`juku-net-mode2.img` carries the standard Juku utility set. For a physical
+session, work on a copy so writes persist independently of rebuilds:
+
+```sh
+cp juku-net-mode2.img cs00014-netdisk.img
+../8080-cosim/tools/janet_disk_server.py --disk-baud 19200 \
+    --writable --timeout 86400 /dev/ttyUSB0 \
+    juku-net-mode2-system.bin cs00014-netdisk.img
+```
+
+Then power/reset and type `TN` without Enter. The server learns the client and
+destination station numbers from the first valid boot request, so no identity
+options are normally needed. The stock ROM bootstrap remains at 9600; only the
+resident CP/M disk protocol changes to the proven high-speed clock. The host
+saves the working image when the session exits.
+
+An initial 2026-08-13 CS00014 session reached the prompt and accepted `DIR`, but
+did so very slowly and then filled the screen with vertical-line garbage. The
+handoff audit found two independent software faults. NetBios can execute the downloaded
+BIOS with an old USART interrupt pending, and its initialization has registered
+RomBios service slots 2, 3, and 9. Slot 9 is reached from the ordinary frame
+path, so masking only the USART PIC requests does not detach NetBios. An interim
+BIOS-owned frame handler also incorrectly replaced `D79F`; that address is the
+monitor's generic interrupt stack/memory-mode dispatcher, not a keyboard-vector
+trampoline. Bypassing it accounts for the physical video corruption.
+
+The corrected handoff executes `DI` as its first instruction, restores the
+three NetBios service slots to their pre-NetBios `RET` entries at
+`D773h/D777h/D78Fh`, leaves the RomBios `D79F` dispatcher and IR5 keyboard path
+untouched, and updates both the PIC mask and its RomBios `D454h` shadow. Console
+status/input/output are again the exact public RomBios calls used by EKDOS 2.30;
+only Janet disk I/O is custom. The focused cosim regression boots, types `DIR`
+through the physical matrix/RomBios path, completes 34 network reads, reaches a
+second `A>` prompt, and asserts the dispatcher, service slots, and PIC
+hardware/shadow state.
+
+A fresh CS00014 bench run with the corrected `NETROM1` image then passed. The
+stock-ROM bootstrap completed at 9600, CP/Mish switched A: to Janet at
+19200/8O1, and the physical keyboard remained responsive. `DIR` completed,
+`TYPE README.TXT` exercised sustained sequential disk reads and console output,
+and `Ctrl-C` followed by another `DIR` exercised warm boot. The server completed
+all requests through sequence `90` with status zero, and the screen remained
+clean. This validates the EKDOS-style RomBios console path and corrected NetBios
+handoff on real CS00014 hardware.
+
+The native character generator displayed a printable Estonian glyph while the
+control-key combination was entered. Preserve the working console baseline for
+now; a future console/character-set study should determine whether selectable
+native/English glyphs or caret notation is preferable. Verify the original
+RomBios convention before changing control-character rendering.
 
 ### Monitorless CS00015 network smoke test
 

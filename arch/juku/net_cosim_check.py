@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 COSIM = Path(os.environ.get("JUKU_COSIM_ROOT", ROOT.parent / "8080-cosim"))
 ROM = COSIM / "roms" / "ekta37.bin"
 SYSTEM = ROOT / "juku-net-system.bin"
+MODE2_SYSTEM = ROOT / "juku-net-mode2-system.bin"
+MODE2_FLAT = ROOT / "juku-net-mode2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
 SMOKE_FLAT = ROOT / "juku-net-smoke.img"
 BAUDTEST_SYSTEM = ROOT / "juku-net-baudtest-system.bin"
@@ -60,6 +62,27 @@ IO_PATTERN = re.compile(
     r"cyc=(\d+) pc=([0-9A-F]{4})"
 )
 
+def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
+    """Read an emulator console PTY until marker or raise with its transcript."""
+    import select
+
+    result = bytearray()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready:
+            continue
+        try:
+            incoming = os.read(fd, 4096)
+        except OSError:
+            continue
+        result.extend(incoming)
+        if marker in result:
+            return bytes(result)
+    raise TimeoutError(
+        f"console did not emit {marker!r}; transcript={bytes(result)!r}"
+    )
+
 
 def run_case(
     trace: Path,
@@ -70,8 +93,10 @@ def run_case(
     volume_source: Path = FLAT,
     seed: bool = True,
     trace_io: bool = False,
+    case_name: str | None = None,
+    expected_mode2: bool = False,
 ) -> tuple[bytearray, dict[str, int], str]:
-    case = work / command.split()[0].lower()
+    case = work / (case_name or command.split()[0].lower())
     case.mkdir()
     system = case / "system.bin"
     shutil.copyfile(system_source, system)
@@ -80,15 +105,17 @@ def run_case(
     volume = bytearray(volume_source.read_bytes())
     master, slave = pty.openpty()
     tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
     environment = os.environ.copy()
     environment.update(
         JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
         JUKU_USART_TRANSFER_CYCLES="64",
         JUKU_USART_BYTE_CYCLES="2300",
         JUKU_USART_PIT_CLOCK="1",
         JUKU_TRACE_BANK="0",
         JUKU_DISABLE_SETTLE="1",
-        JUKU_STOP_PROMPT_AFTER_USART_RX="13000",
         JUKU_KEYS="TN0201",
         JUKU_KEY_HOLD_FRAMES="6",
         JUKU_KEY_GAP_FRAMES="8",
@@ -105,6 +132,7 @@ def run_case(
             stderr=stderr,
         )
         os.close(slave)
+        os.close(console_slave)
         result: dict[str, int] = {}
         disk_error: list[BaseException] = []
         try:
@@ -115,7 +143,8 @@ def run_case(
                 try:
                     result.update(serve_disk(
                         master, volume, writable=command.startswith("SAVE "),
-                        timeout=60, idle_timeout=None, verbose=False,
+                        timeout=60, idle_timeout=None,
+                        verbose=False,
                         stats=result,
                     ))
                 except BaseException as error:
@@ -123,7 +152,12 @@ def run_case(
 
             worker = threading.Thread(target=disk_worker)
             worker.start()
-            process.wait(timeout=60)
+            console = read_console_until(console_master, b"A>", 60)
+            # Let the emulator stop at its character-console prompt oracle so
+            # it writes the framebuffer and ordinary completion diagnostics.
+            time.sleep(0.1)
+            process.terminate()
+            process.wait(timeout=5)
             os.close(master)
             worker.join(timeout=3)
         finally:
@@ -134,8 +168,10 @@ def run_case(
                 os.close(master)
             except OSError:
                 pass
+            os.close(console_master)
 
-    require(process.returncode == 0, f"{command}: cosim exited {process.returncode}")
+    require(process.returncode in (-15, 0),
+            f"{command}: cosim exited {process.returncode}")
     require(all(isinstance(error, OSError) for error in disk_error),
             f"{command}: disk server failed: {disk_error!r}")
     require(boot["image_bytes"] == 6784, f"{command}: bootstrap size changed")
@@ -143,13 +179,18 @@ def run_case(
     require("JUKU disk image" not in log, f"{command}: local FDC media was attached")
     require("D57 divisor=8 ->" in log,
             f"{command}: stock 9600 baud phase was not observed")
-    require("D57 divisor=4 ->" not in log,
-            f"{command}: unexpected 19200 baud takeover was observed")
-    require("stopped at A> prompt" in log, f"{command}: prompt oracle was not met")
-    digest = hashlib.sha256((case / "vram.bin").read_bytes()).hexdigest()
-    if command in EXPECTED_VRAM:
-        require(digest == EXPECTED_VRAM[command],
-                f"{command}: VRAM SHA256 {digest} does not match")
+    if expected_mode2:
+        require("D57 divisor=4 ->" in log,
+                f"{command}: 19200/mode-2 takeover was not observed")
+    else:
+        require("D57 divisor=4 ->" not in log,
+                f"{command}: unexpected 19200 baud takeover was observed")
+    require(b"CP/Mish 2.2 Juku" in console and b"A>" in console,
+            f"{command}: character-console prompt oracle was not met")
+    vram_path = case / "vram.bin"
+    digest = hashlib.sha256(vram_path.read_bytes()).hexdigest() \
+        if vram_path.exists() else "terminated-at-console-prompt"
+    if command in EXPECTED_VRAM and not expected_mode2:
         require(result.get("reads", 0) >= 34,
                 f"{command}: too few network reads")
     print(
@@ -233,7 +274,10 @@ def run_mode2_soak_case(trace: Path, work: Path) -> None:
         # Cosim intentionally models the keyboard configuration bank open,
         # so exercise NetBios's N=/S= fallback. Configured physical machines
         # such as CS00014 need only T,N.
-        JUKU_KEYS="TN0201",
+        # Do not start the interactive command while WRCHR is still drawing
+        # the first prompt.  The matrix-level '|' marker waits for the prompt
+        # glyph in VRAM, just as a human waits for the cursor before typing.
+        JUKU_KEYS="TN0201|",
         JUKU_KEY_HOLD_FRAMES="6",
         JUKU_KEY_GAP_FRAMES="8",
     )
@@ -274,6 +318,96 @@ def run_mode2_soak_case(trace: Path, work: Path) -> None:
         "Monitorless 19,200/mode-2 soak: PASS "
         f"(reads={result['disk']['reads']}, writes={result['disk']['writes']}; "
         "8 KiB byte-verified; success marker received)"
+    )
+
+
+def run_mode2_keyboard_case(trace: Path, work: Path) -> None:
+    """Boot normally, then type DIR through the RomBios keyboard path."""
+    case = work / "mode2-keyboard"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_TRACE_BANK="0",
+        # Wait for the first prompt glyph before allowing appended PTY input
+        # to reach the matrix, just as an operator waits for the cursor.
+        JUKU_KEYS="TN0201|",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_CHECKPOINT_PREFIX=str(case / "final"),
+    )
+    volume = bytearray(MODE2_FLAT.read_bytes())
+    stats: dict[str, int] = {}
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        serve_boot(
+            master, MODE2_SYSTEM.read_bytes(), timeout=120, verbose=False,
+        )
+        disk_error: list[BaseException] = []
+
+        def disk_worker() -> None:
+            try:
+                serve_disk(
+                    master, volume, timeout=180, idle_timeout=None,
+                    verbose=False, stats=stats,
+                )
+            except BaseException as error:
+                disk_error.append(error)
+
+        worker = threading.Thread(target=disk_worker)
+        worker.start()
+        first = read_console_until(console_master, b"A>", 120)
+        os.write(console_master, b"DIR\r")
+        second = read_console_until(console_master, b"A>", 120)
+        process.terminate()
+        process.wait(timeout=5)
+        os.close(master)
+        worker.join(timeout=3)
+        os.close(console_master)
+    log = (case / "stderr.txt").read_text()
+    require(process.returncode in (-15, 0),
+            "mode-2 keyboard cosim did not exit cleanly")
+    require(b"CP/Mish 2.2 Juku" in first and b"DIR" in second,
+            f"mode-2 keyboard did not echo DIR through the matrix: {second!r}")
+    require(all(isinstance(error, OSError) for error in disk_error),
+            f"mode-2 keyboard disk server failed: {disk_error!r}")
+    require(stats.get("reads", 0) >= 34,
+            f"mode-2 keyboard DIR issued too few reads: {stats}")
+    require("D57 divisor=4" in log,
+            "mode-2 keyboard did not run with high-speed disk")
+    final_ram = (case / "final.ram").read_bytes()
+    final_state = dict(
+        line.split("=", 1)
+        for line in (case / "final.state").read_text().splitlines()
+        if "=" in line
+    )
+    require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
+            "mode-2 BIOS modified the RomBios interrupt dispatcher")
+    require(all(final_ram[address] == 0xC9
+                for address in (0xD773, 0xD777, 0xD78F)),
+            "mode-2 BIOS left a NetBios service vector installed")
+    require(final_ram[0xD454] == 0xDF and
+            final_state.get("pic_mask") == "DF",
+            "mode-2 BIOS PIC hardware/shadow state differs from EKDOS")
+    print(
+        "Physical-keyboard network CP/M: PASS "
+        f"(DIR consumed; reads={stats.get('reads', 0)}; RomBios scan serviced)"
     )
 
 
@@ -548,10 +682,12 @@ def run_baudtest2_case(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baudtest-only", action="store_true")
+    parser.add_argument("--keyboard-only", action="store_true")
     args = parser.parse_args()
     require(
         all(path.is_file() for path in (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
+            MODE2_SYSTEM, MODE2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
@@ -562,6 +698,9 @@ def main() -> None:
         work = Path(name)
         trace = work / "trace"
         build_trace(trace)
+        if args.keyboard_only:
+            run_mode2_keyboard_case(trace, work)
+            return
         if args.baudtest_only:
             run_baudtest_case(
                 trace, work, test_baud=9600,
@@ -602,6 +741,12 @@ def main() -> None:
                 f"remote TEST.COM is {extracted.stat().st_size} bytes")
         print("Remote persistence: PASS (TEST.COM is readable and 256 bytes)")
         run_smoke_case(trace, work)
+        run_case(
+            trace, work, "DIR", system_source=MODE2_SYSTEM,
+            volume_source=MODE2_FLAT, case_name="dir-mode2",
+            expected_mode2=True,
+        )
+        run_mode2_keyboard_case(trace, work)
         run_mode2_soak_case(trace, work)
         run_baudtest_case(
             trace, work, test_baud=9600,

@@ -2,8 +2,8 @@
 ; Copyright (c) 2026 Daniel Danilov
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
-; Strict Intel 8080 source. Hardware access is delegated to the public
-; RomBios vectors used by EKDOS 2.30 and Bootstrap 4.x.
+; Strict Intel 8080 source. Console and printer access use the same public
+; RomBios vectors as EKDOS 2.30; only network disk I/O is BIOS-owned.
 
         maclib  cpm
 
@@ -69,10 +69,18 @@ PIT3COUNT0     equ     018h
 .ifdef NETWORK19200
 PIT3CTL        equ     01bh
 .endif
+PICMASK        equ     001h
+PICSHADOW      equ     0d454h
 .endif
 
 ; Cold start. Bootstrap has already loaded the resident image.
 BOOT:
+.ifdef NETWORK
+        ; NetBios executes the resident image with its USART requests still
+        ; installed and may have IR2 pending. Close that handoff window before
+        ; touching the CP/M stack or workspace; NETINIT later enables only IR5.
+        di
+.endif
         lxi     sp,0100h
 
         ; Publish the BDOS address through the RomBios-owned pointer.
@@ -112,24 +120,27 @@ BOOT:
 
         call    PRINT
         db      01bh,'L'
-        db      '52K CP/Mish-Juku 2.2',13,10
+        db      0
+        lxi     h,VERMSG
+        call    PRINTSTR
 .ifdef NETWORK
 .ifdef NETWORK19200
-        db      'A: - Janet disk, 19200/M2',13,10,10,0
+        call    PRINT
+        db      'A: Janet disk, 19200',13,10,10,0
 .else
-        db      'A: - Janet disk, 9600',13,10,10,0
+        call    PRINT
+        db      'A: Janet',13,10,10,0
 .endif
 .else
+        call    PRINT
         db      'A:, B: - 386K floppy',13,10,10,0
 .endif
         jmp     GOCPM
 
 VERMSG:
-        db      'CP/MISH JUKU 2.2 - 8080 BUILD',13,10
-        db      'BUILD DATE: 2026-08-12',13,10
-        db      'ORIGINAL CCP: DIGITAL RESEARCH',13,10
-        db      'PORT: DANILA SUKHAREV',13,10
-        db      'BUILT WITH CODEX GPT-5.6 SOL',0
+        db      'CP/Mish 2.2 Juku NETROM1',13,10
+        db      'GPT-5.6 Sol, Arvutimuuseum',13,10
+        db      'Danila Sukharev',13,10,0
 
 ; Resident CCP is outside the TPA and remains valid, so warm boot does not
 ; depend on the system tracks of the currently inserted disk.
@@ -234,11 +245,15 @@ SELDSK:
         rnc
 
         sta     SEKDSK
+.ifdef NETWORK
+        lda     TYPEA
+.else
         ora     a
         lda     TYPEA
         jz      SELTYPE
         lda     TYPEB
 SELTYPE:
+.endif
         sta     TYP
 
         mov     l,c
@@ -287,6 +302,10 @@ NETRWDISK:
         inr     a
         sta     SEQUENCE
 NETRETRY:
+        di
+        mvi     a,0ffh
+        out     PICMASK
+        sta     PICSHADOW
         mvi     a,035h
         out     USARTCTL      ; TxEN + RxE + error reset + RTS
         mvi     b,0
@@ -376,8 +395,15 @@ NETCHECK:
         jnz     NETRETRY
         mov     a,c
         ora     a
-        rz
+        jz      NETDONE
         mvi     a,1
+NETDONE:
+        push    psw
+        mvi     a,0dfh
+        out     PICMASK
+        sta     PICSHADOW
+        ei
+        pop     psw
         ret
 
 NETSEND:
@@ -434,6 +460,20 @@ NETREADY:
         call    NETRX
         cpi     'R'
         jnz     NETREADY
+        ; NET_USART_INIT registered handlers 2, 3 and 9 through RomBios FF89.
+        ; Restore those three service-vector slots to their pre-NetBios RET
+        ; entries. In particular, service 9 runs from the normal frame path,
+        ; so masking IR2/IR3 alone does not detach NetBios from RomBios.
+        mvi     a,0c9h
+        sta     0d773h
+        sta     0d777h
+        sta     0d78fh
+        ; Leave the monitor's D79F dispatcher and IR5 frame/keyboard service
+        ; untouched, exactly as the normal EKDOS console path expects.
+        mvi     a,0dfh
+        out     PICMASK
+        sta     PICSHADOW
+        ei
         ret
 .else
 RWDISK:
@@ -477,6 +517,18 @@ PRINT1:
 PRINT2:
         pchl
 
+; Print the zero-terminated string at HL without embedding it at the call site.
+PRINTSTR:
+        mov     a,m
+        inx     h
+        ora     a
+        rz
+        mov     c,a
+        push    h
+        call    CONOUT
+        pop     h
+        jmp     PRINTSTR
+
 ; Juku's 10 physical 512-byte sectors are exposed as 40 CP/M records.
 TRANS:
         db      1,2,3,4,9,10,11,12
@@ -485,15 +537,19 @@ TRANS:
         db      13,14,15,16,21,22,23,24
         db      29,30,31,32,37,38,39,40
 
+.ifndef NETWORK
 TRANS1:
         db      1,2,3,4,9,10,11,12
         db      17,18,19,20,25,26,27,28
         db      33,34,35,36,5,6,7,8
         db      13,14,15,16,21,22,23,24
         db      29,30,31,32,37,38,39,40
+.endif
 
 DPH0:   dw      TRANS,0,0,0,DIRBUF,DPB0,CHK0,ALLOC0
+.ifndef NETWORK
 DPH1:   dw      TRANS1,0,0,0,DIRBUF,DPB0,CHK1,ALLOC1
+.endif
 
 ; One 80-track side, 10 x 512 bytes, two reserved tracks, 2K blocks.
 DPB0:   dw      40
@@ -515,7 +571,6 @@ SEQUENCE: db    0
 SAVEHL   equ    0d2feh
 SAVESP   equ    0d2fch
 ROMSTACK equ    SAVESP
-
 ; BDOS scratch space is intentionally outside the initialized 1 KiB BIOS
 ; image, matching the established EKDOS memory map.
 DIRBUF   equ    BBASE+8*128

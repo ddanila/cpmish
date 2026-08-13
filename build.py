@@ -14,6 +14,7 @@ export(
         "juku.img": "arch/juku+diskimage",
         "juku-system.bin": "arch/juku+systemfile",
         "juku-net-system.bin": "arch/juku+systemfile-net",
+        "juku-net-mode2-system.bin": "arch/juku+systemfile-net-mode2",
         "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
         "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-baudtest2-system.bin": "arch/juku+systemfile-net-baudtest2",
@@ -23,6 +24,7 @@ export(
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",
         "juku-net-baudtest-ladder.img": "arch/juku+net-baudtest-ladder-volume",
         "juku-net-baudtest2.img": "arch/juku+net-baudtest2-volume",
+        "juku-net-mode2.img": "arch/juku+net-mode2-volume",
         "juku-net-mode2-soak.img": "arch/juku+net-mode2-soak-volume",
     },
 )

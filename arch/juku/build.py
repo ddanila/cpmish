@@ -129,6 +129,15 @@ simplerule(
     label="JUKUNETSYSTEM",
 )
 simplerule(
+    name="systemfile-net-mode2",
+    ins=[".+memory-net-mode2"],
+    outs=["=juku-net-mode2-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETMODE2SYSTEM",
+)
+simplerule(
     name="systemfile-net-smoke",
     ins=[".+memory-net"],
     outs=["=juku-net-smoke-system.bin"],
@@ -171,6 +180,22 @@ flatdiskimage = diskimage(
     name="flatdiskimage",
     format="juku386",
     bootfile=".+systemfile",
+    size=409600,
+    map={
+        "readme.txt": readme,
+        "asm.com": "cpmtools+asm",
+        "copy.com": "cpmtools+copy",
+        "dump.com": "cpmtools+dump",
+        "diag.com": ".+diag",
+        "stat.com": "cpmtools+stat",
+        "submit.com": "cpmtools+submit",
+    },
+)
+
+net_mode2_diskimage = diskimage(
+    name="net-mode2-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-mode2",
     size=409600,
     map={
         "readme.txt": readme,
@@ -265,6 +290,13 @@ simplerule(
     outs=["=juku-net-baudtest2.img"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUNETBAUDTEST2VOLUME",
+)
+simplerule(
+    name="net-mode2-volume",
+    ins=[net_mode2_diskimage],
+    outs=["=juku-net-mode2.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETMODE2VOLUME",
 )
 simplerule(
     name="net-mode2-soak-volume",
