@@ -29,9 +29,17 @@ report:
         call    BDOS
         ret
 
+; Printed unconditionally: the program takes no arguments, and its scope is
+; easy to misread as a whole-RAM test, so say plainly what it does cover.
 banner:
-        db      13,10,'JUKU DIAG 0.1',13,10
-        db      'Shared non-destructive RAM cell test: $'
+        db      13,10,'JUKU DIAG 0.2',13,10
+        db      'Non-destructive 8080 RAM cell test.',13,10
+        db      'Usage: DIAG  (takes no arguments)',13,10
+        db      'Scope: one private 256-byte buffer',13,10
+        db      'inside this program. Each cell gets',13,10
+        db      '00 and FF, then its original value',13,10
+        db      'back. This is not a full-RAM test.',13,10
+        db      13,10,'Result: $'
 passed:
         db      'PASS',13,10,'$'
 failed_message:
