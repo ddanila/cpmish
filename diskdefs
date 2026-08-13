@@ -118,5 +118,18 @@ diskdef juku386
     os 2.2
 end
 
+# Native double-sided Juku data volume in logical track order. Physical .JUK
+# images use cylinder/head interleaving and are converted by the network host.
+diskdef juku784
+    seclen 512
+    tracks 160
+    sectrk 10
+    blocksize 4096
+    maxdir 128
+    boottrk 2
+    skewtab 0,2,4,6,8,1,3,5,7,9
+    os 2.2
+end
+
 
 # vim: set ts=4 sw=4 expandtab

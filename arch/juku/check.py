@@ -52,7 +52,7 @@ def main() -> None:
     require("db\t'VER '" in ccp_source, "CCP VER intrinsic is missing")
 
     bios_source = (ROOT / "arch" / "juku" / "bios.asm").read_text()
-    for marker in ("CP/Mish 2.2 Juku NETROM1", "Danila Sukharev",
+    for marker in ("CP/Mish 2.2 Juku NETROM2", "Danila Sukharev",
                    "GPT-5.6 Sol", "Arvutimuuseum"):
         require(marker in bios_source, f"BIOS version marker is missing: {marker}")
 
@@ -64,7 +64,7 @@ def main() -> None:
     require(system[:PREFIX_SIZE] == bytes([0xE5]) * PREFIX_SIZE,
             "system file lacks its four-record E5 prefix")
     require(system[PREFIX_SIZE] == 0xC3, "CCP entry is not a JMP")
-    for marker in (b"CP/Mish 2.2 Juku NETROM1", b"Danila Sukharev",
+    for marker in (b"CP/Mish 2.2 Juku NETROM2", b"Danila Sukharev",
                    b"GPT-5.6 Sol", b"Arvutimuuseum"):
         require(marker in system, f"system version marker is missing: {marker!r}")
     bios = PREFIX_SIZE + BBASE - CBASE

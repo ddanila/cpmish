@@ -270,6 +270,39 @@ options are normally needed. The stock ROM bootstrap remains at 9600; only the
 resident CP/M disk protocol changes to the proven high-speed clock. The host
 saves the working image when the session exits.
 
+The `NETROM2` BIOS also exposes B: using the original Juku double-sided
+geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
+blocks, and about 784 KiB usable capacity. The host accepts a physical 800 KiB
+`.JUK` image and converts its cylinder/head interleaving in memory; the source
+game image remains unchanged and B: is read-only. A: retains the smaller 386K
+geometry and is the only drive affected by `--writable`:
+
+```sh
+../8080-cosim/tools/janet_disk_server.py --disk-baud 19200 \
+    --writable --drive-b /path/to/J3KGAME2.JUK --timeout 86400 \
+    /dev/ttyUSB0 juku-net-mode2-system.bin cs00014-netdisk.img
+```
+
+At CP/M's `A>` prompt, enter `B:` and then `DIR`. The published Juku 3000
+images are suitable unchanged:
+
+- `J3KGAME2.JUK` (2025) is the strongest general-play default, with Arkanoid,
+  Boulder Dash, Bomber Man, Robbo, Tetris, and Warp & Warp among its ports;
+- `J3KGAME1.JUK` (2024) is the stronger historical Juku collection, including
+  Indy, Zoo, Xonix, Space Attack, and the original graphical Tetris.
+
+They are published by Juku 3000 / Elektroonikamuuseum as
+[`J3KGAME1.JUK`](https://elektroonikamuuseum.ee/failid/juku/tarkvara/J3KGAME1.JUK)
+and
+[`J3KGAME2.JUK`](https://elektroonikamuuseum.ee/failid/juku/tarkvara/J3KGAME2.JUK).
+The images are external inputs and are not copied into this repository.
+
+Some programs have companion data/font files, need `MODX` for 80x24 display,
+or require a mouse. Serving the complete native disk avoids silently omitting
+those dependencies. The focused cosim regression uses the real 2025 image,
+selects B:, lists it, loads `TETRIS.COM`, and observes 71 B: reads with no
+successful B: write.
+
 An initial 2026-08-13 CS00014 session reached the prompt and accepted `DIR`, but
 did so very slowly and then filled the screen with vertical-line garbage. The
 handoff audit found two independent software faults. NetBios can execute the downloaded

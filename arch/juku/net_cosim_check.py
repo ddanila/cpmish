@@ -41,7 +41,7 @@ FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
 
-from janet_disk_server import serve_disk  # noqa: E402
+from janet_disk_server import juku_image_to_volume, serve_disk  # noqa: E402
 from janet_netboot import serve as serve_boot  # noqa: E402
 
 
@@ -411,6 +411,84 @@ def run_mode2_keyboard_case(trace: Path, work: Path) -> None:
     )
 
 
+def run_native_drive_b_case(trace: Path, work: Path, game_image: Path) -> None:
+    """Select, list, and execute a program from a native two-sided B:."""
+    case = work / "native-drive-b"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201|",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+    )
+    drive_a = bytearray(MODE2_FLAT.read_bytes())
+    drive_b = juku_image_to_volume(game_image.read_bytes())
+    stats: dict[str, int] = {}
+    errors: list[BaseException] = []
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        serve_boot(master, MODE2_SYSTEM.read_bytes(), timeout=120, verbose=False)
+
+        def disk_worker() -> None:
+            try:
+                serve_disk(
+                    master, drive_a, drive_b=drive_b, timeout=180,
+                    idle_timeout=None, verbose=False, stats=stats,
+                )
+            except BaseException as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=disk_worker)
+        worker.start()
+        read_console_until(console_master, b"A>", 120)
+        os.write(console_master, b"B:\r")
+        switched = read_console_until(console_master, b"B>", 30)
+        os.write(console_master, b"DIR\r")
+        listing = read_console_until(console_master, b"B>", 60)
+        before_game = stats.get("reads_b", 0)
+        os.write(console_master, b"TETRIS\r")
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and stats.get("reads_b", 0) <= before_game:
+            time.sleep(0.05)
+        time.sleep(1)
+        process.terminate()
+        process.wait(timeout=5)
+        os.close(master)
+        worker.join(timeout=3)
+        os.close(console_master)
+    require(process.returncode in (-15, 0),
+            "native B: cosim did not exit cleanly")
+    require(b"B>" in switched and b"TETRIS" in listing.upper(),
+            f"native B: selection/listing failed: {switched!r} {listing!r}")
+    require(stats.get("reads_b", 0) > before_game,
+            f"TETRIS.COM did not load from B: {stats}")
+    require(stats.get("writes_b", 0) == 0,
+            f"read-only game disk received a successful write: {stats}")
+    require(all(isinstance(error, OSError) for error in errors),
+            f"native B: server failed: {errors!r}")
+    print(
+        "Native network B: PASS "
+        f"(DIR + TETRIS load; B reads={stats.get('reads_b', 0)}; read-only)"
+    )
+
+
 def run_baudtest_case(
     trace: Path, work: Path, *, test_baud: int, volume_source: Path,
     test_parity: str = "odd", truncate_case: int | None = None,
@@ -683,6 +761,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baudtest-only", action="store_true")
     parser.add_argument("--keyboard-only", action="store_true")
+    parser.add_argument("--game-disk", type=Path,
+                        help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
     require(
         all(path.is_file() for path in (
@@ -700,6 +780,8 @@ def main() -> None:
         build_trace(trace)
         if args.keyboard_only:
             run_mode2_keyboard_case(trace, work)
+            if args.game_disk:
+                run_native_drive_b_case(trace, work, args.game_disk)
             return
         if args.baudtest_only:
             run_baudtest_case(
@@ -747,6 +829,8 @@ def main() -> None:
             expected_mode2=True,
         )
         run_mode2_keyboard_case(trace, work)
+        if args.game_disk:
+            run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)
         run_baudtest_case(
             trace, work, test_baud=9600,

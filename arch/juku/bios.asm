@@ -90,11 +90,13 @@ BOOT:
         inx     h
         mov     m,d
 
-        ; Configure 80-track 386K drives exactly as EKDOS 2.30 does.
+        ; Configure the 80-track system volume.  Network B: uses the original
+        ; two-sided 160-track geometry through its own DPH/DPB below.
         xra     a
         sta     TYP
         sta     TYPEA
 .ifdef NETWORK
+        sta     TYPEB
         sta     SEQUENCE
         call    NETINIT
 .else
@@ -126,10 +128,11 @@ BOOT:
 .ifdef NETWORK
 .ifdef NETWORK19200
         call    PRINT
-        db      'A: Janet disk, 19200',13,10,10,0
+        db      'A: Janet 386K, B: native 784K',13,10
+        db      'Network 19200',13,10,10,0
 .else
         call    PRINT
-        db      'A: Janet',13,10,10,0
+        db      'A: Janet 386K, B: native 784K',13,10,10,0
 .endif
 .else
         call    PRINT
@@ -138,7 +141,7 @@ BOOT:
         jmp     GOCPM
 
 VERMSG:
-        db      'CP/Mish 2.2 Juku NETROM1',13,10
+        db      'CP/Mish 2.2 Juku NETROM2',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
         db      'Danila Sukharev',13,10,0
 
@@ -238,7 +241,7 @@ SELDSK:
         lxi     h,0
         mov     a,c
 .ifdef NETWORK
-        cpi     1
+        cpi     2
 .else
         cpi     2
 .endif
@@ -246,7 +249,11 @@ SELDSK:
 
         sta     SEKDSK
 .ifdef NETWORK
+        ora     a
         lda     TYPEA
+        jz      SELTYPE
+        lda     TYPEB
+SELTYPE:
 .else
         ora     a
         lda     TYPEA
@@ -537,18 +544,11 @@ TRANS:
         db      13,14,15,16,21,22,23,24
         db      29,30,31,32,37,38,39,40
 
-.ifndef NETWORK
-TRANS1:
-        db      1,2,3,4,9,10,11,12
-        db      17,18,19,20,25,26,27,28
-        db      33,34,35,36,5,6,7,8
-        db      13,14,15,16,21,22,23,24
-        db      29,30,31,32,37,38,39,40
-.endif
-
 DPH0:   dw      TRANS,0,0,0,DIRBUF,DPB0,CHK0,ALLOC0
-.ifndef NETWORK
-DPH1:   dw      TRANS1,0,0,0,DIRBUF,DPB0,CHK1,ALLOC1
+.ifdef NETWORK
+DPH1:   dw      TRANS,0,0,0,DIRBUF,DPB1,CHK1,ALLOC1
+.else
+DPH1:   dw      TRANS,0,0,0,DIRBUF,DPB0,CHK1,ALLOC1
 .endif
 
 ; One 80-track side, 10 x 512 bytes, two reserved tracks, 2K blocks.
@@ -559,6 +559,20 @@ DPB0:   dw      40
         db      0c0h,0
         dw      32
         dw      2
+
+.ifdef NETWORK
+; Original two-sided Juku game-disk geometry: 160 logical tracks, 4K blocks.
+; DSM 196 and AL0 80h are the period EKDOS full-disk values.  The final
+; half-block is the known Juku phantom boundary and is not allocated by the
+; published game disks.
+DPB1:   dw      40
+        db      5,31,3
+        dw      196
+        dw      127
+        db      080h,0
+        dw      32
+        dw      2
+.endif
 
 REQUEST: db     0
 .ifdef NETWORK
