@@ -201,7 +201,8 @@ Build and test both variants with:
 ```sh
 make juku-system.bin juku.img juku-net-system.bin \
     juku-net-smoke-system.bin juku-net-smoke.img \
-    juku-net-baudtest-system.bin juku-net-baudtest-9600.img
+    juku-net-baudtest-system.bin juku-net-baudtest-9600.img \
+    juku-net-baudtest2-system.bin juku-net-baudtest2.img
 make juku-cosim-check
 make juku-net-cosim-check
 ```
@@ -373,6 +374,54 @@ expected waveforms, decision tree, and lower-priority follow-ups are maintained
 in `../../../8080-cosim/docs/juku-serial-19200-investigation.md` in a side-by-side
 checkout. Until those captures exist, 9600/8O1 remains the only supported
 physical resident-disk rate.
+
+### Resilient BAUDTEST2
+
+`BAUDTST2.COM` is the final software-only diagnostic before that scope work.
+It is automatically fetched and started over the proven 9600/8O1 network path
+and then runs 68 independently recoverable cases:
+
+- the original increasing-length baseline and an exact 1-through-20 boundary
+  hunt;
+- 64-byte `00`, `FF`, `55`, `AA`, decrementing, walking-one, walking-zero,
+  and deterministic PRBS patterns;
+- ten identical PRBS repetitions, idle intervals through 20 ms, four
+  preamble patterns, and 8/16/32-byte chunking;
+- one byte every 100 ms, which excludes CPU overrun and inter-character
+  settling if a failure remains inside a single character;
+- a host two-stop-bit control, interpreted only as evidence that added mark
+  time helps if it passes;
+- a valid 9600/x64/count-2 stage; and
+- a 19,200/x16/count-4 8253 mode-2 stage for comparison with stock mode 3.
+
+The target starts with `DI` and performs no display, timer, or system service
+inside the receive loop. Each case completely resets D11, announces a
+checksummed descriptor repeatedly, searches for its `A5` frame instead of
+assuming stream alignment, times out independently, and reports the final
+status, cumulative PE/OE/FE, discarded pre-sync bytes, checksum state, and the
+index/expected/actual values of the first mismatch. Reports and rate-transition
+frames are checksummed and repeated. They require no acknowledgement, so a
+lost byte, lost report, stopped host, or disconnected cable cannot strand the
+target waiting at a diagnostic rate. After the finite table, it restores D57
+mode 3/count 8 and D11 x16/8O1 before returning to CP/M.
+
+Run it for station 09 (CS00014) with:
+
+```sh
+../8080-cosim/tools/janet_baud_test2.py --client 9 --server 2 \
+    --result cs00014-baudtest2.json /dev/ttyUSB0 \
+    juku-net-baudtest2-system.bin juku-net-baudtest2.img
+```
+
+Then reset and type `TN0201` without Enter. Use `--client 8` for CS00015.
+The JSON is rewritten after every report. On Linux the host also attempts
+`TIOCGICOUNT`, retaining driver frame/parity/overrun deltas when the USB-serial
+driver implements them; lack of those optional counters is not a test failure.
+
+The regression runs all 68 ideal cases and a negative control that truncates
+case 7. The truncated case times out, every later case still completes, and
+the target restores 9600. Physical receive failures are diagnostic results and
+therefore do not make the host command fail; host/protocol failures do.
 
 For the corrected monitorless CS00015 rate test (station 08), run:
 

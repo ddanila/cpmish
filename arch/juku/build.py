@@ -56,6 +56,11 @@ zmac(
     defines=["TESTLADDER"],
     relocatable=False,
 )
+zmac(
+    name="baudtest2",
+    src="./baudtest2.asm",
+    relocatable=False,
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -118,6 +123,15 @@ simplerule(
     ],
     label="JUKUNETBAUDTESTSYSTEM",
 )
+simplerule(
+    name="systemfile-net-baudtest2",
+    ins=[".+memory-net"],
+    outs=["=juku-net-baudtest2-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]} BAUDTST2",
+    ],
+    label="JUKUNETBAUDTEST2SYSTEM",
+)
 
 readme = unix2cpm(name="readme", src="README.md")
 
@@ -174,6 +188,15 @@ net_baudtest_ladder_diskimage = diskimage(
         "baudtest.com": ".+baudtest-ladder",
     },
 )
+net_baudtest2_diskimage = diskimage(
+    name="net-baudtest2-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-baudtest2",
+    size=409600,
+    map={
+        "baudtst2.com": ".+baudtest2",
+    },
+)
 simplerule(
     name="net-baudtest-9600-volume",
     ins=[net_baudtest_9600_diskimage],
@@ -194,6 +217,13 @@ simplerule(
     outs=["=juku-net-baudtest-ladder.img"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUNETBAUDTESTLADDERVOLUME",
+)
+simplerule(
+    name="net-baudtest2-volume",
+    ins=[net_baudtest2_diskimage],
+    outs=["=juku-net-baudtest2.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETBAUDTEST2VOLUME",
 )
 simplerule(
     name="net-smoke-volume",

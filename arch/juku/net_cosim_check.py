@@ -31,6 +31,8 @@ BAUDTEST_SYSTEM = ROOT / "juku-net-baudtest-system.bin"
 BAUDTEST_9600_FLAT = ROOT / "juku-net-baudtest-9600.img"
 BAUDTEST_8N1_FLAT = ROOT / "juku-net-baudtest-8n1.img"
 BAUDTEST_LADDER_FLAT = ROOT / "juku-net-baudtest-ladder.img"
+BAUDTEST2_SYSTEM = ROOT / "juku-net-baudtest2-system.bin"
+BAUDTEST2_FLAT = ROOT / "juku-net-baudtest2.img"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -395,6 +397,90 @@ def run_baudtest_ladder_case(trace: Path, work: Path) -> None:
     )
 
 
+def run_baudtest2_case(
+    trace: Path, work: Path, *, truncate_case: int | None = None,
+) -> None:
+    """Run the resilient pattern/history/clock-shape matrix end to end."""
+    suffix = "" if truncate_case is None else f"-truncate-{truncate_case}"
+    case = work / f"baudtest2{suffix}"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+    )
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        host_environment = os.environ.copy()
+        if truncate_case is not None:
+            host_environment["JUKU_BAUDTEST2_TRUNCATE"] = str(truncate_case)
+        host = subprocess.run(
+            [
+                sys.executable,
+                str(COSIM / "tools" / "janet_baud_test2.py"),
+                "--no-termios", "--result", str(case / "result.json"),
+                f"fd:{master}", str(BAUDTEST2_SYSTEM), str(BAUDTEST2_FLAT),
+            ],
+            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, timeout=240, pass_fds=(master,), env=host_environment,
+        )
+        time.sleep(0.05)
+        process.terminate()
+        process.wait(timeout=5)
+        os.close(master)
+    require(host.returncode == 0, f"BAUDTEST2 host failed:\n{host.stdout}")
+    result = json.loads((case / "result.json").read_text())
+    reports = result["cases"]
+    require(
+        result["status"] == "complete" and result["restored_9600"] is True
+        and len(reports) == 68
+        and [sum(row["stage"] == stage for row in reports)
+             for stage in range(3)] == [59, 3, 6]
+        and (
+            (truncate_case is None and result["pass"] is True
+             and all(row["pass"] is True for row in reports))
+            or (truncate_case is not None and result["pass"] is False
+                and reports[truncate_case]["pass"] is False
+                and reports[truncate_case]["protocol"] == 1
+                and all(row["pass"] is True
+                        for index, row in enumerate(reports)
+                        if index != truncate_case))
+        ),
+        f"BAUDTEST2 matrix failed: {result}",
+    )
+    log = (case / "stderr.txt").read_text()
+    require(
+        "D57 divisor=4" in log and "x16 mode=5E" in log
+        and "D57 divisor=2" in log and "x64 mode=5F" in log
+        and "D57 divisor=8" in log,
+        "BAUDTEST2 did not exercise 19200/x16, valid 9600/x64, and restore",
+    )
+    if truncate_case is None:
+        print(
+            "Resilient BAUDTEST2: PASS (68 cases; pattern/repetition/idle/"
+            "preamble/chunking + x64/9600 + mode-2/19200; restored 9600)"
+        )
+    else:
+        print(
+            f"Resilient BAUDTEST2 recovery: PASS (case {truncate_case} "
+            "truncated; remaining matrix completed; restored 9600)"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baudtest-only", action="store_true")
@@ -403,7 +489,7 @@ def main() -> None:
         all(path.is_file() for path in (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
-            BAUDTEST_LADDER_FLAT,
+            BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -428,6 +514,8 @@ def main() -> None:
                 truncate_case=7,
             )
             run_baudtest_ladder_case(trace, work)
+            run_baudtest2_case(trace, work)
+            run_baudtest2_case(trace, work, truncate_case=7)
             print("JUKU-NET-BAUDTEST-CHECK: PASS")
             return
         run_case(trace, work, "DIR")
@@ -465,6 +553,8 @@ def main() -> None:
             truncate_case=7,
         )
         run_baudtest_ladder_case(trace, work)
+        run_baudtest2_case(trace, work)
+        run_baudtest2_case(trace, work, truncate_case=7)
     print("JUKU-NET-COSIM-CHECK: PASS")
 
 
