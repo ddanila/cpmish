@@ -309,6 +309,12 @@ and used the native `J3KGAME2.JUK` network B:. This closes the initial physical
 validation gate for the 160-track DPB, host `.JUK` conversion, and drive-1
 protocol path. B: remains intentionally read-only.
 
+Physical CS00015 independently passed the same path on 2026-08-13. It reached
+the CP/Mish prompt, listed A: with `DIR`, selected B:, listed the native game
+disk with `DIR`, and started `TETRIS.COM` successfully. Together the CS00014
+and CS00015 runs validate the complete interactive dual-network-drive path on
+both available reference boards.
+
 An initial 2026-08-13 CS00014 session reached the prompt and accepted `DIR`, but
 did so very slowly and then filled the screen with vertical-line garbage. The
 handoff audit found two independent software faults. NetBios can execute the downloaded
