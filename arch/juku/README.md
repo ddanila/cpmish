@@ -303,6 +303,12 @@ those dependencies. The focused cosim regression uses the real 2025 image,
 selects B:, lists it, loads `TETRIS.COM`, and observes 71 B: reads with no
 successful B: write.
 
+Physical CS00014 subsequently passed this `NETROM2` dual-drive setup on
+2026-08-13: CP/Mish retained its network A: volume and successfully selected
+and used the native `J3KGAME2.JUK` network B:. This closes the initial physical
+validation gate for the 160-track DPB, host `.JUK` conversion, and drive-1
+protocol path. B: remains intentionally read-only.
+
 An initial 2026-08-13 CS00014 session reached the prompt and accepted `DIR`, but
 did so very slowly and then filled the screen with vertical-line garbage. The
 handoff audit found two independent software faults. NetBios can execute the downloaded
