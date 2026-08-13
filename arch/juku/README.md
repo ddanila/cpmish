@@ -202,7 +202,8 @@ Build and test both variants with:
 make juku-system.bin juku.img juku-net-system.bin \
     juku-net-smoke-system.bin juku-net-smoke.img \
     juku-net-baudtest-system.bin juku-net-baudtest-9600.img \
-    juku-net-baudtest2-system.bin juku-net-baudtest2.img
+    juku-net-baudtest2-system.bin juku-net-baudtest2.img \
+    juku-net-mode2-soak-system.bin juku-net-mode2-soak.img
 make juku-cosim-check
 make juku-net-cosim-check
 ```
@@ -246,7 +247,10 @@ the Juku:
     juku-net-smoke-system.bin juku-net-smoke.img
 ```
 
-Then type `TN0201` with no Enter at the ROM prompt. No CP/M command is needed.
+Then type `TN` with no Enter at the ROM prompt. A configured physical Juku
+takes its station identity from keyboard switch bank S21; use `TN0201` only if
+the ROM actually falls through to its `N=` and `S=` prompts. No CP/M command
+is needed.
 The host uses 9600 baud, 8 data bits, odd parity, one stop bit throughout. The phrase starts only
 after the network volume has been attached and `SMOKE.COM` has been fetched.
 If it returns to the unseen `A>` prompt, it remains silent after one phrase.
@@ -259,7 +263,8 @@ For physical use, first extract/copy the generated flat volume (the 400 KiB
     juku-net-system.bin juku-flat.img --writable
 ```
 
-Then type `TN0201` with no Enter at the Juku ROM prompt. The server bootstraps
+Then type `TN` with no Enter at the Juku ROM prompt (`TN0201` is only the
+zero-configuration fallback). The server bootstraps
 at 9600/8O1, retains that rate, repeatedly emits the
 `NR` resident-ready marker until the BIOS synchronizes, and then serves A:.
 Without `--writable`, write requests return a CP/M disk error and the host image
@@ -413,7 +418,8 @@ Run it for station 09 (CS00014) with:
     juku-net-baudtest2-system.bin juku-net-baudtest2.img
 ```
 
-Then reset and type `TN0201` without Enter. Use `--client 8` for CS00015.
+Then reset and type `TN` without Enter. Use `TN0201` only if the ROM asks for
+the network numbers; use `--client 8` for CS00015.
 The JSON is rewritten after every report. On Linux the host also attempts
 `TIOCGICOUNT`, retaining driver frame/parity/overrun deltas when the USB-serial
 driver implements them; lack of those optional counters is not a test failure.
@@ -422,6 +428,61 @@ written beside the JSON as `cs00014-baudtest2.log`; use `--log PATH` to select
 another location. Stage transitions, overall `N/68` progress, complete case
 parameters, payload/report waits, results, JSON checkpoints, counter support,
 and final 9600 confirmation are all explicit in that log.
+
+The corrected 2026-08-13 run on physical CS00014 completed all 68 cases and
+restored 9600. Stock PIT mode 3/count 4 passed only four of 59 cases; failed
+frames stopped after short clean prefixes without PE/OE/FE. The 9600/x64
+control also failed. In contrast, every PIT mode 2/count 4 case passed at
+19,200/x16, including unpaced 64-byte `55` and PRBS patterns and unpaced
+133-byte incrementing and PRBS frames. This localizes the rate failure to the
+D57-to-D11 receive-clock waveform/edge interpretation rather than serial-line
+bandwidth, host pacing, parity, CPU service latency, or a generic D11 receive
+failure.
+
+### Monitorless 19,200/mode-2 network-disk soak
+
+`juku-net-mode2-soak-system.bin` moves the resident network BIOS—not the stock
+ROM bootstrap—to the physically proven D57 mode 2/count 4 clock. It remains a
+separate experimental image; the supported normal network build stays at
+9600/mode 3. Its initial `M2SOAK.COM` creates an 8 KiB file on host-backed A:,
+writes 64 changing 128-byte patterns, closes and reopens it, reads and verifies
+every byte, deletes the temporary file, and emits `M2PASS!`. It then plays the
+smoke tune as a monitorless PASS indication. Any file or byte error emits
+`M2FAIL!`, halts, and does not play the tune.
+
+For CS00014 (station 09), run:
+
+```sh
+../8080-cosim/tools/janet_mode2_soak.py --client 9 --server 2 \
+    --result cs00014-mode2-soak.json /dev/ttyUSB0 \
+    juku-net-mode2-soak-system.bin juku-net-mode2-soak.img
+```
+
+Then power/reset the machine and type `TN` without Enter. The host bootstraps
+at 9600/8O1, switches its own UART to 19,200 when the ROM load completes, and
+serves a writable in-memory copy of the volume. Console output is timestamped
+and duplicated to `cs00014-mode2-soak.log`; JSON is updated at the bootstrap,
+disk, and final states. Success requires the target's marker, at least 64
+writes, at least 64 reads, and the audible tune. The host restores its UART to
+9600 on exit; resetting the Juku likewise restores the stock ROM setting.
+
+Physical CS00014 passed this complete test on 2026-08-13. The stock bootstrap
+loaded 6,784 bytes at 9600 with 161 positive acknowledgements and no rejects.
+At 19,200/mode 2 the resident disk completed 108 reads and 67 writes with zero
+retries, closed/reopened and byte-verified all 8 KiB, deleted the file, emitted
+`M2PASS!`, and played the tune. Linux reported zero frame, parity, overrun,
+buffer-overrun, and break counter deltas. The source volume hash remained
+unchanged because the host served a writable in-memory copy.
+
+The timestamped disk phase carried 22,400 bytes of aggregate 128-byte record
+payload in approximately 16–17 seconds, about 1.3–1.4 kB/s. With 8O1 framing,
+each read or write transaction consumes 142 wire bytes; including the current
+2 ms reply guard, the protocol ceiling is about 1.54 kB/s. The measured result
+is therefore roughly 86–91% of the present protocol limit. An isolated 8 KiB
+sequential transfer should take about six seconds before directory overhead.
+The slower part is still the stock bootstrap: its 6,784-byte image took about
+81 seconds because Janet uses many small acknowledged turns. Boot-protocol
+optimization is independent of the already-running resident disk.
 
 The regression runs all 68 ideal cases and a negative control that truncates
 case 7. The truncated case times out, every later case still completes, and
@@ -443,8 +504,8 @@ For the corrected monitorless CS00015 rate test (station 08), run:
     juku-net-baudtest-system.bin juku-net-smoke.img
 ```
 
-Then reset and type `TN0201` without Enter. No ROM change or CP/M command is
-needed. On failure, leave the machine on until the sweep completes: the JSON
+Then reset and type `TN` without Enter (`TN0201` only if prompted). No ROM
+change or CP/M command is needed. On failure, leave the machine on until the sweep completes: the JSON
 records the clean burst envelope, pacing threshold, receive count, checksum,
 and 8251 error bits. A completely silent server still leaves the ordinary
 network BIOS in its polled receive loop; a bounded transaction timeout remains

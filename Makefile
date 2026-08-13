@@ -13,7 +13,8 @@ juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin \
 		juku-net-baudtest-system.bin juku-net-smoke.img \
 		juku-net-baudtest-9600.img juku-net-baudtest-8n1.img \
 		juku-net-baudtest-ladder.img juku-net-baudtest2-system.bin \
-		juku-net-baudtest2.img juku.img
+		juku-net-baudtest2.img juku-net-mode2-soak-system.bin \
+		juku-net-mode2-soak.img juku.img
 	python3 arch/juku/net_cosim_check.py
 
 TARGETS = +all

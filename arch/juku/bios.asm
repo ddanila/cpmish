@@ -66,6 +66,9 @@ DKWR           equ     012h
 USARTDATA      equ     008h
 USARTCTL       equ     009h
 PIT3COUNT0     equ     018h
+.ifdef NETWORK19200
+PIT3CTL        equ     01bh
+.endif
 .endif
 
 ; Cold start. Bootstrap has already loaded the resident image.
@@ -111,7 +114,11 @@ BOOT:
         db      01bh,'L'
         db      '52K CP/Mish-Juku 2.2',13,10
 .ifdef NETWORK
+.ifdef NETWORK19200
+        db      'A: - Janet disk, 19200/M2',13,10,10,0
+.else
         db      'A: - Janet disk, 9600',13,10,10,0
+.endif
 .else
         db      'A:, B: - 386K floppy',13,10,10,0
 .endif
@@ -397,7 +404,17 @@ NETRX:
 
 NETINIT:
         di
+.ifdef NETWORK19200
+        ; BAUDTEST2 proved this exact clock on physical CS00014: mode 2,
+        ; BCD, LSB-only, count 4 gives the 8251 a reliable 19,200/x16 RxC.
+        ; The sustained bidirectional disk soak also passes on CS00014. Keep
+        ; it in a separate high-speed image until another board confirms it.
+        mvi     a,015h
+        out     PIT3CTL
+        mvi     a,4
+.else
         mvi     a,8
+.endif
         out     PIT3COUNT0
         xra     a
         out     USARTCTL

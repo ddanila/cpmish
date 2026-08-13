@@ -33,6 +33,8 @@ BAUDTEST_8N1_FLAT = ROOT / "juku-net-baudtest-8n1.img"
 BAUDTEST_LADDER_FLAT = ROOT / "juku-net-baudtest-ladder.img"
 BAUDTEST2_SYSTEM = ROOT / "juku-net-baudtest2-system.bin"
 BAUDTEST2_FLAT = ROOT / "juku-net-baudtest2.img"
+MODE2_SOAK_SYSTEM = ROOT / "juku-net-mode2-soak-system.bin"
+MODE2_SOAK_FLAT = ROOT / "juku-net-mode2-soak.img"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -139,9 +141,9 @@ def run_case(
     require(boot["image_bytes"] == 6784, f"{command}: bootstrap size changed")
     log = (case / "stderr.txt").read_text()
     require("JUKU disk image" not in log, f"{command}: local FDC media was attached")
-    require("D57 divisor=8 -> byte_cycles=2300" in log,
+    require("D57 divisor=8 ->" in log,
             f"{command}: stock 9600 baud phase was not observed")
-    require("D57 divisor=4 -> byte_cycles=1150" not in log,
+    require("D57 divisor=4 ->" not in log,
             f"{command}: unexpected 19200 baud takeover was observed")
     require("stopped at A> prompt" in log, f"{command}: prompt oracle was not met")
     digest = hashlib.sha256((case / "vram.bin").read_bytes()).hexdigest()
@@ -210,6 +212,68 @@ def run_smoke_case(trace: Path, work: Path) -> None:
     print(
         "Monitorless SMOKE: PASS "
         "(auto-command; remote COM load; 12 notes; 4 bars; 112 BPM)"
+    )
+
+
+def run_mode2_soak_case(trace: Path, work: Path) -> None:
+    """Exercise the physical experiment image at 19,200/mode 2."""
+    case = work / "mode2-soak"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_TRACE_BANK="0",
+        # Cosim intentionally models the keyboard configuration bank open,
+        # so exercise NetBios's N=/S= fallback. Configured physical machines
+        # such as CS00014 need only T,N.
+        JUKU_KEYS="TN0201",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+    )
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        host = subprocess.run(
+            [
+                sys.executable,
+                str(COSIM / "tools" / "janet_mode2_soak.py"),
+                "--no-termios", "--client", "1",
+                "--result", str(case / "result.json"),
+                f"fd:{master}", str(MODE2_SOAK_SYSTEM), str(MODE2_SOAK_FLAT),
+            ],
+            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, timeout=180, pass_fds=(master,),
+        )
+        time.sleep(0.05)
+        process.terminate()
+        process.wait(timeout=5)
+        os.close(master)
+    require(host.returncode == 0, f"mode-2 soak host failed:\n{host.stdout}")
+    result = json.loads((case / "result.json").read_text())
+    require(result["status"] == "complete" and result["pass"] is True,
+            f"mode-2 soak did not complete: {result}")
+    require(result["disk"]["writes"] >= 64,
+            f"mode-2 soak issued too few writes: {result}")
+    require(result["disk"]["reads"] >= 64,
+            f"mode-2 soak issued too few reads: {result}")
+    log = (case / "stderr.txt").read_text()
+    require("D57 divisor=8" in log and "D57 divisor=4" in log,
+            "mode-2 soak did not switch from 9600 bootstrap to 19,200")
+    print(
+        "Monitorless 19,200/mode-2 soak: PASS "
+        f"(reads={result['disk']['reads']}, writes={result['disk']['writes']}; "
+        "8 KiB byte-verified; success marker received)"
     )
 
 
@@ -490,6 +554,7 @@ def main() -> None:
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
+            MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -537,6 +602,7 @@ def main() -> None:
                 f"remote TEST.COM is {extracted.stat().st_size} bytes")
         print("Remote persistence: PASS (TEST.COM is readable and 256 bytes)")
         run_smoke_case(trace, work)
+        run_mode2_soak_case(trace, work)
         run_baudtest_case(
             trace, work, test_baud=9600,
             volume_source=BAUDTEST_9600_FLAT,

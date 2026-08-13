@@ -19,6 +19,11 @@ zmac(
     deps=["include/cpm.lib", "./bios.asm"],
 )
 zmac(
+    name="bios-net-mode2",
+    src="./bios-net-mode2.asm",
+    deps=["include/cpm.lib", "./bios.asm"],
+)
+zmac(
     name="diag",
     src="./diag.asm",
     deps=["third_party/juku-common/diag/memory.asm"],
@@ -61,6 +66,15 @@ zmac(
     src="./baudtest2.asm",
     relocatable=False,
 )
+zmac(
+    name="mode2-soak",
+    src="./mode2-soak.asm",
+    deps=[
+        "third_party/juku-common/music/smoke-player.asm",
+        "third_party/juku-common/music/smoke-table.asm",
+    ],
+    relocatable=False,
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage
@@ -81,6 +95,15 @@ ld80(
         CBASE: ["third_party/dr/ccp+ccp-juku"],
         FBASE: ["third_party/dr/bdos"],
         BBASE: [".+bios-net"],
+    },
+)
+ld80(
+    name="memory-net-mode2",
+    address=CBASE,
+    objs={
+        CBASE: ["third_party/dr/ccp+ccp-juku"],
+        FBASE: ["third_party/dr/bdos"],
+        BBASE: [".+bios-net-mode2"],
     },
 )
 
@@ -131,6 +154,15 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]} BAUDTST2",
     ],
     label="JUKUNETBAUDTEST2SYSTEM",
+)
+simplerule(
+    name="systemfile-net-mode2-soak",
+    ins=[".+memory-net-mode2"],
+    outs=["=juku-net-mode2-soak-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]} M2SOAK",
+    ],
+    label="JUKUNETMODE2SOAKSYSTEM",
 )
 
 readme = unix2cpm(name="readme", src="README.md")
@@ -197,6 +229,15 @@ net_baudtest2_diskimage = diskimage(
         "baudtst2.com": ".+baudtest2",
     },
 )
+net_mode2_soak_diskimage = diskimage(
+    name="net-mode2-soak-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-mode2-soak",
+    size=409600,
+    map={
+        "m2soak.com": ".+mode2-soak",
+    },
+)
 simplerule(
     name="net-baudtest-9600-volume",
     ins=[net_baudtest_9600_diskimage],
@@ -224,6 +265,13 @@ simplerule(
     outs=["=juku-net-baudtest2.img"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUNETBAUDTEST2VOLUME",
+)
+simplerule(
+    name="net-mode2-soak-volume",
+    ins=[net_mode2_soak_diskimage],
+    outs=["=juku-net-mode2-soak.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETMODE2SOAKVOLUME",
 )
 simplerule(
     name="net-smoke-volume",
