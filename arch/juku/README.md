@@ -64,6 +64,39 @@ make PREFIX="$HOME/.local" install
 On macOS, invoke the final command with `gmake` and use a Python version newer
 than the system Python if the ACK checkout requires it.
 
+### ACK on macOS/arm64: Modula-2 must be excluded
+
+Verified 2026-08-13 on macOS 15 (arm64): ACK's Modula-2 front end `em_m2`
+aborts with signal 5 wherever it is invoked, so any CP/M build target that
+needs Modula-2 fails. Nothing here uses Modula-2 -- this port is C -- so the
+fix is to drop it from the `cpm` platform in the ACK checkout before
+building. Four edits, all confined to `plat`/`examples`/`tests`:
+
+| File | Change |
+| --- | --- |
+| `plat/build.py` | in the shared plat deps, skip `lang/m2/libm2+all_{plat}` when `plat == "cpm"` |
+| `examples/build.py` | give `"cpm"` a C-only program list instead of `ALL` |
+| `plat/cpm/tests/build.py` | `sets=["core"]` -- `"bugs"` contains one `.mod` test (`bug-22-inn`) |
+| `Makefile` | `PLATS = cpm` (already required above) |
+
+Keep the Pascal runtime (`lang/pc/libpc`): only Modula-2 is broken, and the
+platform's own `core` tests link `pascal.o`. Dropping it produces a confusing
+`em_led: can't read .../pascal.o` failure.
+
+With those in place `gmake PREFIX="$HOME/.local" install` completes and
+installs `~/.local/bin/ack` plus the `cpm` platform files. The patches are
+local to the ACK checkout; they are not carried in this repository.
+
+### Submodules
+
+The Juku targets need both submodules; a missing one fails late with a
+confusing `No rule to make target
+'third_party/juku-common/diag/memory.asm'`:
+
+```sh
+git submodule update --init --recursive
+```
+
 The initial Juku branch point is upstream commit
 `d70c643a5db24007ad6533f92b701fd714a99b7f`. A clean `make` at
 that commit builds all eight upstream disk images successfully with ACK's
