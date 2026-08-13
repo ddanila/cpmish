@@ -484,6 +484,35 @@ The slower part is still the stock bootstrap: its 6,784-byte image took about
 81 seconds because Janet uses many small acknowledged turns. Boot-protocol
 optimization is independent of the already-running resident disk.
 
+### Future boot-speed tracks
+
+Preserve two paths rather than replacing the archival one:
+
+1. Optimize the host server for the unmodified stock-ROM Janet protocol. Keep
+   all five archived systems byte-exact and retain physical CS00014/CS00015
+   compatibility while profiling and reducing avoidable host waits, poll
+   latency, and USB-UART scheduling overhead. The CS00014 baseline is 6,784
+   bytes in about 81 seconds, 334 transmitted frames, 161 positive ACKs, and
+   zero rejects.
+2. Add a versioned bulk protocol where both ends are controlled. Prefer a tiny
+   stage-1 loader delivered by stock Janet at 9600, followed by the already
+   proven 19,200/8O1 mode-2/count-4 switch and large CRC-protected blocks. This
+   keeps the stock ROM usable without spending 81 seconds transferring the
+   complete resident image through its chatty protocol. A custom ROM may enter
+   the same bulk loader directly later.
+
+The new path needs explicit address/length/sequence fields, bounded retry and
+resynchronization, final whole-image verification, and an explicit entry
+address. Compare ACK-per-block with a small window and add compression only if
+the physical end-to-end benchmark improves. At 19,200 the 6,784-byte raw-wire
+minimum is about 3.9 seconds; target 4–6 seconds initially. Treat
+mode-2/count-2 nominal 38,400 as a later recoverable experiment, not a default.
+The high-speed path must always leave a clean fallback to stock 9600 Janet.
+
+Acceptance requires loss/corruption/duplicate/reset injection in cosim,
+byte-exact RAM before entry, and at least ten consecutive cold/warm physical
+boots on both CS00014 and CS00015 with timings, retries, and UART errors saved.
+
 The regression runs all 68 ideal cases and a negative control that truncates
 case 7. The truncated case times out, every later case still completes, and
 the target restores 9600. Physical receive failures are diagnostic results and
