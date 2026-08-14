@@ -14,7 +14,11 @@ USARTCTL        equ     009h
 DESTINATION     equ     0b400h
 ENTRY           equ     0ca00h
 SYSTEM_SIZE     equ     01a00h
+.ifdef FASTBOOT_8N1
+PROTOCOL_VERSION equ    5
+.else
 PROTOCOL_VERSION equ    3
+.endif
 
         org     0300h
 
@@ -58,7 +62,27 @@ drain:
         mov     a,b
         ora     c
         jnz     drain
+.ifdef FASTBOOT_8N1
+        call    restore_8o1
+.endif
         jmp     ENTRY
+
+.ifdef FASTBOOT_8N1
+; NETROM2 and the host-backed disk remain at the proven 19200/8O1 framing.
+restore_8o1:
+        xra     a
+        out     USARTCTL
+        out     USARTCTL
+        out     USARTCTL
+        mvi     a,040h
+        out     USARTCTL
+        mvi     a,05eh
+        out     USARTCTL
+        mvi     a,035h
+        out     USARTCTL
+        in      USARTDATA
+        ret
+.endif
 
 ; CRC-16/IBM reflected polynomial A001h, initial 0000h. Input byte A, CRC DE.
 ; HL is preserved so this can run directly in the receive/store loop.

@@ -241,7 +241,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
-    juku-fastboot-v4.bin
+    juku-fastboot-v4.bin juku-fastboot-v5.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -375,6 +375,17 @@ clock. Its approximately 307.7 kHz D11 input is already near the documented
 Further speed work stays at 19,200: compare 8N1, cycle-test compression, and
 profile avoidable stock-Janet latency. V4 remains diagnostic evidence, not a
 candidate default.
+
+`juku-fastboot-v5.bin` is the separate **19,200/8N1 desk candidate**. It keeps
+v3's mode-2/count-4 x16 clock and one-record layout, changes only the extension
+and system-stream framing to D11 mode `4Eh`, then drains its success frames and
+restores mode `5Eh` before NETROM2. The 384-byte bundle contains a 117-byte
+core and 197-byte extension and has SHA-256
+`8fa63db50daaf64f8da9025b443cbe0cb3802d985a4ba5c74630435953d628a4`.
+Clean and injected-fault cosim passes exercise 8N1, compare all 6656 bytes, and
+prove 8O1 restoration at CA00h. The wire-floor saving is about 0.35 seconds,
+predicting a first CS00015 A: request near 6.55 seconds. V3 remains the default
+until v5 passes physically.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation

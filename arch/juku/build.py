@@ -97,6 +97,18 @@ zmac(
     relocatable=False,
 )
 zmac(
+    name="fastboot-v5-core",
+    src="./fastboot-v3-core.asm",
+    defines=["FASTBOOT_8N1"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v5-extension",
+    src="./fastboot-v3-extension.asm",
+    defines=["FASTBOOT_8N1"],
+    relocatable=False,
+)
+zmac(
     name="fastboot-v4-core",
     src="./fastboot-v4-core.asm",
     relocatable=False,
@@ -138,6 +150,15 @@ simplerule(
         "python3 arch/juku/build_fastboot_v4.py {ins[0]} {ins[1]} {outs[0]}",
     ],
     label="JUKUFASTBOOTV4",
+)
+simplerule(
+    name="fastboot-v5-bin",
+    ins=[".+fastboot-v5-core", ".+fastboot-v5-extension"],
+    outs=["=juku-fastboot-v5.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v5.py {ins[0]} {ins[1]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV5",
 )
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),

@@ -25,7 +25,11 @@ EXTENSION_SIZE  equ     0100h
         ; Self-describing bundle metadata.  Host tooling transfers one core
         ; record and finds one 256-byte extension after it.
         jmp     start
+.ifdef FASTBOOT_8N1
+        db      'J','F','V','5'
+.else
         db      'J','F','V','3'
+.endif
         db      1                       ; core records
         db      2                       ; extension records
 
@@ -41,14 +45,18 @@ start:
         mvi     a,4
         out     PITCOUNT0
 
-        ; Canonical D11 reset, then x16/8O1 with receive and transmit active.
+        ; Canonical D11 reset, then x16/8O1 (v3) or 8N1 (v5).
         xra     a
         out     USARTCTL
         out     USARTCTL
         out     USARTCTL
         mvi     a,040h
         out     USARTCTL
+.ifdef FASTBOOT_8N1
+        mvi     a,04eh
+.else
         mvi     a,05eh
+.endif
         out     USARTCTL
         mvi     a,035h
         out     USARTCTL
