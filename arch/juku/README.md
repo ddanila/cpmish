@@ -289,9 +289,20 @@ stream resynchronization, duplicate handling, and a final whole-image CRC are
 implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
 and with injected corruption, complete packet loss, duplication, and one lost
 target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
-Physical timing and
-repeatability are not yet recorded; the existing all-stock command above stays
-the fallback after reset.
+Physical CS00015 then passed the complete path and reached the visible CP/M
+prompt. Freeze its same-machine comparison as two named baselines:
+
+| Baseline | First valid Janet request to first valid A: request | Frames in stock phase |
+| --- | ---: | ---: |
+| **Fast stage v1** | **17.508 s** | 42 |
+| **Original stock 9600** | **73.873 s** | 330 |
+
+Fast stage v1 used 7.99 s for the stock stage and 8.90 s for the bulk phase,
+including one automatically recovered block-0 timeout. Both baselines used the
+same image, volume, cable, host, and CS00015 and both reached the prompt. The
+improvement is 4.22x, saving 56.365 s (76.3%). Retain both labels and results;
+future optimizations are new variants. The original command above remains the
+fallback after reset.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -644,15 +655,17 @@ optimization is independent of the already-running resident disk.
 
 ### Boot-speed tracks
 
-Preserve two paths rather than replacing the archival one:
+Preserve two distinctly named paths rather than replacing the archival one:
 
-1. Optimize the host server for the unmodified stock-ROM Janet protocol. Keep
+1. **Original stock 9600:** optimize the host server for the unmodified
+   stock-ROM Janet protocol. Keep
    all five archived systems byte-exact and retain physical CS00014/CS00015
    compatibility while profiling and reducing avoidable host waits, poll
    latency, and USB-UART scheduling overhead. The CS00014 baseline is 6,784
    bytes in about 81 seconds, 334 transmitted frames, 161 positive ACKs, and
    zero rejects.
-2. The first versioned bulk protocol is implemented: a 558-byte stage-1 loader
+2. **Fast stage v1:** the first versioned bulk protocol is implemented. A
+   558-byte stage-1 loader
    arrives through stock Janet at 9600, then the already proven 19,200/8O1
    mode-2/count-4 setting carries thirteen 512-byte CRC-protected blocks. This
    keeps the stock ROM usable without spending 81 seconds transferring the
