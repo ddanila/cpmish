@@ -80,6 +80,12 @@ zmac(
     src="./fastboot-stage1.asm",
     relocatable=False,
 )
+zmac(
+    name="fastboot-v2",
+    src="./fastboot-stage1.asm",
+    defines=["FASTBOOT_V2"],
+    relocatable=False,
+)
 
 simplerule(
     name="fastboot-stage1-bin",
@@ -87,6 +93,13 @@ simplerule(
     outs=["=juku-fastboot-stage1.bin"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUFASTBOOTSTAGE1",
+)
+simplerule(
+    name="fastboot-v2-bin",
+    ins=[".+fastboot-v2"],
+    outs=["=juku-fastboot-v2.bin"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUFASTBOOTV2",
 )
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),

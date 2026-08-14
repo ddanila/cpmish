@@ -240,7 +240,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-baudtest2-system.bin juku-net-baudtest2.img \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
-    juku-fastboot-stage1.bin
+    juku-fastboot-stage1.bin juku-fastboot-v2.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -303,6 +303,21 @@ same image, volume, cable, host, and CS00015 and both reached the prompt. The
 improvement is 4.22x, saving 56.365 s (76.3%). Retain both labels and results;
 future optimizations are new variants. The original command above remains the
 fallback after reset.
+
+`juku-fastboot-stage1.bin` is the frozen **Fast stage v1** artifact. Its build
+remains byte-exact at 558 bytes with SHA-256
+`b600758acf2bc10a068b003caf29d8799be6fa35489af6e23b8277360d334646`.
+`juku-fastboot-v2.bin` is the separate 560-byte candidate. V2 checkpoints a
+cumulative image CRC after every block, retaining the prior checkpoint for
+duplicate recovery, so the last block is also the final whole-image proof and
+the 6656-byte second CRC scan disappears. The host recognizes the version from
+the ready marker. Run v2 by substituting its filename in `--fast-stage1`.
+
+The removed scan is 4,297,085 8080 cycles for this image, about 2.53 seconds at
+CS00015's measured ~1.70 MHz. V2 also gives the repeated header ACK enough time
+to release the half-duplex line, addressing v1's observed block-0 timeout. Its
+first CS00015 target is about 12.8 seconds; this remains a prediction until a
+new physical run is recorded under the distinct **Fast stage v2** label.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation

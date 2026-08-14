@@ -38,6 +38,7 @@ BAUDTEST2_FLAT = ROOT / "juku-net-baudtest2.img"
 MODE2_SOAK_SYSTEM = ROOT / "juku-net-mode2-soak-system.bin"
 MODE2_SOAK_FLAT = ROOT / "juku-net-mode2-soak.img"
 FASTBOOT_STAGE1 = ROOT / "juku-fastboot-stage1.bin"
+FASTBOOT_V2 = ROOT / "juku-fastboot-v2.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -72,9 +73,11 @@ def parse_state(path: Path) -> dict[str, str]:
     )
 
 
-def run_fastboot_case(trace: Path, work: Path, *, faults: bool) -> None:
+def run_fastboot_case(
+    trace: Path, work: Path, *, version: int, faults: bool,
+) -> None:
     """Run the real stage-1 code through stock Janet and the bulk protocol."""
-    case = work / ("fastboot-faults" if faults else "fastboot-clean")
+    case = work / f"fastboot-v{version}-{'faults' if faults else 'clean'}"
     case.mkdir()
     checkpoint = case / "checkpoint"
     master, slave = pty.openpty()
@@ -124,7 +127,9 @@ def run_fastboot_case(trace: Path, work: Path, *, faults: bool) -> None:
         os.close(slave)
         try:
             result = serve_fast(
-                master, FASTBOOT_STAGE1.read_bytes(), MODE2_SYSTEM.read_bytes(),
+                master,
+                (FASTBOOT_STAGE1 if version == 1 else FASTBOOT_V2).read_bytes(),
+                MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120, reply_timeout=3, verbose=False,
                 configure_rate=False, block_filter=inject,
                 reply_filter=receive_reply,
@@ -150,6 +155,8 @@ def run_fastboot_case(trace: Path, work: Path, *, faults: bool) -> None:
             "fastboot installed system is not byte-exact")
     require(result["stage_bytes"] <= 640,
             f"fastboot stage grew to {result['stage_bytes']} bytes")
+    require(result["protocol_version"] == version,
+            f"fastboot v{version} negotiated v{result['protocol_version']}")
     if faults:
         require(result["retries"] == 3,
                 f"corruption/loss retry count is {result['retries']}")
@@ -157,7 +164,7 @@ def run_fastboot_case(trace: Path, work: Path, *, faults: bool) -> None:
         require(result["retries"] == 0,
                 f"clean fastboot retried {result['retries']} times")
     print(
-        f"FASTBOOT {'FAULTS' if faults else 'CLEAN'}: PASS "
+        f"FASTBOOT V{version} {'FAULTS' if faults else 'CLEAN'}: PASS "
         f"(stage={result['stage_bytes']} bytes/"
         f"{result['stock_sent_frames']} stock frames, "
         f"bulk={result['blocks']}x512, retries={result['retries']})"
@@ -873,7 +880,7 @@ def main() -> None:
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
-            FASTBOOT_STAGE1,
+            FASTBOOT_STAGE1, FASTBOOT_V2,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -882,8 +889,9 @@ def main() -> None:
         trace = work / "trace"
         build_trace(trace)
         if args.fastboot_only:
-            run_fastboot_case(trace, work, faults=False)
-            run_fastboot_case(trace, work, faults=True)
+            for version in (1, 2):
+                run_fastboot_case(trace, work, version=version, faults=False)
+                run_fastboot_case(trace, work, version=version, faults=True)
             print("JUKU-FASTBOOT-COSIM-CHECK: PASS")
             return
         if args.keyboard_only:
@@ -958,8 +966,9 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
-        run_fastboot_case(trace, work, faults=False)
-        run_fastboot_case(trace, work, faults=True)
+        for version in (1, 2):
+            run_fastboot_case(trace, work, version=version, faults=False)
+            run_fastboot_case(trace, work, version=version, faults=True)
     print("JUKU-NET-COSIM-CHECK: PASS")
 
 

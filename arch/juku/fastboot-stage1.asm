@@ -19,6 +19,11 @@ DESTINATION     equ     0b400h
 ENTRY           equ     0ca00h
 BLOCK_SIZE      equ     0200h
 BLOCK_COUNT     equ     13
+.ifdef FASTBOOT_V2
+PROTOCOL_VERSION equ    2
+.else
+PROTOCOL_VERSION equ    1
+.endif
 
         org     0100h
 
@@ -45,8 +50,14 @@ session:
         shld    next_address
         xra     a
         sta     next_sequence
+.ifdef FASTBOOT_V2
+        lxi     h,0ffffh
+        shld    current_crc
+        shld    previous_crc
+.else
         mvi     a,BLOCK_COUNT
         sta     blocks_left
+.endif
         mvi     a,0ffh
         mvi     c,0
         call    send_reply_three       ; header accepted despite one lost reply
@@ -54,6 +65,17 @@ session:
 block_loop:
         call    receive_block
         jc      block_loop
+.ifdef FASTBOOT_V2
+        lda     next_sequence
+        cpi     BLOCK_COUNT
+        jnz     block_loop
+
+        ; V2 checkpoints the cumulative image CRC after every accepted block.
+        ; The final guard is therefore constant-time rather than a second scan.
+        lhld    current_crc
+        mov     d,h
+        mov     e,l
+.else
         lda     blocks_left
         dcr     a
         sta     blocks_left
@@ -78,6 +100,7 @@ whole_crc_loop:
         lda     expected_crc_lo
         cmp     e
         jnz     whole_bad
+.endif
 
         mvi     a,BLOCK_COUNT
         mvi     c,0
@@ -90,7 +113,7 @@ whole_bad:
         call    send_reply
         jmp     session
 
-; Header: 'J','H',version=1,block-count=13,whole-crc-hi,whole-crc-lo,xor.
+; Header: 'J','H',version,block-count=13,whole-crc-hi,whole-crc-lo,xor.
 receive_header:
         mvi     b,'H'
         call    find_magic
@@ -98,7 +121,7 @@ receive_header:
         mvi     c,'J' xor 'H'
         call    receive_xor_byte
         rc
-        cpi     1
+        cpi     PROTOCOL_VERSION
         stc
         rnz
         call    receive_xor_byte
@@ -139,8 +162,10 @@ receive_block:
         call    rx_timeout
         jc      block_timeout
         sta     packet_sequence
+.ifndef FASTBOOT_V2
         lxi     d,0ffffh
         call    crc_byte
+.endif
 
         lda     next_sequence
         mov     c,a
@@ -154,6 +179,9 @@ receive_block:
         dcr     a
         cmp     b
         jnz     block_unexpected
+.ifdef FASTBOOT_V2
+        call    load_previous_crc
+.endif
         lhld    next_address
         dcr     h
         dcr     h
@@ -161,10 +189,16 @@ receive_block:
         jmp     block_receive_data
 
 block_expected:
+.ifdef FASTBOOT_V2
+        call    load_current_crc
+.endif
         lhld    next_address
         xra     a                      ; expected block
         jmp     block_receive_data
 block_unexpected:
+.ifdef FASTBOOT_V2
+        call    load_current_crc
+.endif
         lhld    next_address           ; consume safely; retry overwrites it
         mvi     a,2
 block_receive_data:
@@ -193,6 +227,13 @@ block_byte:
         ora     a
         jnz     block_not_expected
         shld    next_address
+.ifdef FASTBOOT_V2
+        lhld    current_crc
+        shld    previous_crc
+        mov     h,d
+        mov     l,e
+        shld    current_crc
+.endif
         lda     next_sequence
         inr     a
         sta     next_sequence
@@ -222,6 +263,18 @@ block_crc_bad:
 block_timeout:
         stc
         ret
+
+.ifdef FASTBOOT_V2
+load_current_crc:
+        lhld    current_crc
+        jmp     crc_hl_to_de
+load_previous_crc:
+        lhld    previous_crc
+crc_hl_to_de:
+        mov     d,h
+        mov     e,l
+        ret
+.endif
 
 ; Search a timeout-bounded stream for 'J',B where B is supplied by caller.
 find_magic:
@@ -306,11 +359,11 @@ send_ready:
         call    tx
         mvi     a,'R'
         call    tx
-        mvi     a,1
+        mvi     a,PROTOCOL_VERSION
         call    tx
         mvi     a,BLOCK_COUNT
         call    tx
-        mvi     a,'J' xor 'R' xor 1 xor BLOCK_COUNT
+        mvi     a,'J' xor 'R' xor PROTOCOL_VERSION xor BLOCK_COUNT
         call    tx
         jmp     tx_finish
 
@@ -373,6 +426,11 @@ expected_crc_hi: db    0
 expected_crc_lo: db    0
 next_address:   dw      DESTINATION
 next_sequence:  db      0
+.ifdef FASTBOOT_V2
+current_crc:    dw      0ffffh
+previous_crc:   dw      0ffffh
+.else
 blocks_left:    db      BLOCK_COUNT
+.endif
 packet_sequence: db     0
 packet_kind:    db      0
