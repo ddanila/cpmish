@@ -239,9 +239,11 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-baudtest-system.bin juku-net-baudtest-9600.img \
     juku-net-baudtest2-system.bin juku-net-baudtest2.img \
     juku-net-mode2-system.bin juku-net-mode2.img \
-    juku-net-mode2-soak-system.bin juku-net-mode2-soak.img
+    juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
+    juku-fastboot-stage1.bin
 make juku-cosim-check
 make juku-net-cosim-check
+make juku-fastboot-cosim-check
 ```
 
 `juku-net-system.bin` is the diskless network image. The network regression
@@ -269,6 +271,27 @@ destination station numbers from the first valid boot request, so no identity
 options are normally needed. The stock ROM bootstrap remains at 9600; only the
 resident CP/M disk protocol changes to the proven high-speed clock. The host
 saves the working image when the session exits.
+
+An unmodified stock ROM can now reach the same CP/M system substantially faster
+by loading only a 558-byte stage through Janet at 9600, then transferring the
+6656-byte resident image as thirteen CRC16-protected 512-byte blocks at the
+proven 19200 mode-2/count-4 setting:
+
+```sh
+../8080-cosim/tools/janet_disk_server.py \
+    --fast-stage1 juku-fastboot-stage1.bin --disk-baud 19200 \
+    --writable --timeout 86400 /dev/ttyUSB0 \
+    juku-net-mode2-system.bin cs00014-netdisk.img
+```
+
+This path is deliberately fixed-layout and single-client. Per-block retry,
+stream resynchronization, duplicate handling, and a final whole-image CRC are
+implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
+and with injected corruption, complete packet loss, duplication, and one lost
+target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
+Physical timing and
+repeatability are not yet recorded; the existing all-stock command above stays
+the fallback after reset.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -619,7 +642,7 @@ The slower part is still the stock bootstrap: its 6,784-byte image took about
 81 seconds because Janet uses many small acknowledged turns. Boot-protocol
 optimization is independent of the already-running resident disk.
 
-### Future boot-speed tracks
+### Boot-speed tracks
 
 Preserve two paths rather than replacing the archival one:
 
@@ -629,24 +652,26 @@ Preserve two paths rather than replacing the archival one:
    latency, and USB-UART scheduling overhead. The CS00014 baseline is 6,784
    bytes in about 81 seconds, 334 transmitted frames, 161 positive ACKs, and
    zero rejects.
-2. Add a versioned bulk protocol where both ends are controlled. Prefer a tiny
-   stage-1 loader delivered by stock Janet at 9600, followed by the already
-   proven 19,200/8O1 mode-2/count-4 switch and large CRC-protected blocks. This
+2. The first versioned bulk protocol is implemented: a 558-byte stage-1 loader
+   arrives through stock Janet at 9600, then the already proven 19,200/8O1
+   mode-2/count-4 setting carries thirteen 512-byte CRC-protected blocks. This
    keeps the stock ROM usable without spending 81 seconds transferring the
    complete resident image through its chatty protocol. A custom ROM may enter
    the same bulk loader directly later.
 
-The new path needs explicit address/length/sequence fields, bounded retry and
-resynchronization, final whole-image verification, and an explicit entry
-address. Compare ACK-per-block with a small window and add compression only if
-the physical end-to-end benchmark improves. At 19,200 the 6,784-byte raw-wire
-minimum is about 3.9 seconds; target 4–6 seconds initially. Treat
+The fixed single-client path has sequence fields, bounded retry and
+resynchronization, duplicate handling, final whole-image verification, and a
+fixed B400h/6656-byte/CA00h handoff. Compare ACK-per-block with a small window
+and add compression only if the physical end-to-end benchmark improves. At
+19,200 the 6,656-byte bulk wire minimum is about 3.8 seconds; target 4–6 seconds
+for the bulk phase initially. Treat
 mode-2/count-2 nominal 38,400 as a later recoverable experiment, not a default.
 The high-speed path must always leave a clean fallback to stock 9600 Janet.
 
-Acceptance requires loss/corruption/duplicate/reset injection in cosim,
-byte-exact RAM before entry, and at least ten consecutive cold/warm physical
-boots on both CS00014 and CS00015 with timings, retries, and UART errors saved.
+Loss/corruption/duplicate injection and byte-exact RAM before entry now pass in
+cosim. Automated reset/re-discovery remains open. Bench qualification requires
+at least ten consecutive cold/warm physical boots on both CS00014 and CS00015
+with timings, retries, and UART errors saved.
 
 The regression runs all 68 ideal cases and a negative control that truncates
 case 7. The truncated case times out, every later case still completes, and

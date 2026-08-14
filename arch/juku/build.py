@@ -75,6 +75,19 @@ zmac(
     ],
     relocatable=False,
 )
+zmac(
+    name="fastboot-stage1",
+    src="./fastboot-stage1.asm",
+    relocatable=False,
+)
+
+simplerule(
+    name="fastboot-stage1-bin",
+    ins=[".+fastboot-stage1"],
+    outs=["=juku-fastboot-stage1.bin"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUFASTBOOTSTAGE1",
+)
 
 # The established 52K EKDOS layout: CCP=B400, BDOS base=BC00 (entry BC06),
 # BIOS=CA00. The final 1 KiB is the initialized BIOS budget; scratch storage

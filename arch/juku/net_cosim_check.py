@@ -37,11 +37,13 @@ BAUDTEST2_SYSTEM = ROOT / "juku-net-baudtest2-system.bin"
 BAUDTEST2_FLAT = ROOT / "juku-net-baudtest2.img"
 MODE2_SOAK_SYSTEM = ROOT / "juku-net-mode2-soak-system.bin"
 MODE2_SOAK_FLAT = ROOT / "juku-net-mode2-soak.img"
+FASTBOOT_STAGE1 = ROOT / "juku-fastboot-stage1.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
 
 from janet_disk_server import juku_image_to_volume, serve_disk  # noqa: E402
+from janet_fastboot import serve_fast  # noqa: E402
 from janet_netboot import serve as serve_boot  # noqa: E402
 
 
@@ -61,6 +63,105 @@ IO_PATTERN = re.compile(
     r"\[IOSEQ\] OUT port=0x(19|1B) value=0x([0-9A-F]{2}) "
     r"cyc=(\d+) pc=([0-9A-F]{4})"
 )
+
+
+def parse_state(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1) for line in path.read_text().splitlines()
+        if "=" in line
+    )
+
+
+def run_fastboot_case(trace: Path, work: Path, *, faults: bool) -> None:
+    """Run the real stage-1 code through stock Janet and the bulk protocol."""
+    case = work / ("fastboot-faults" if faults else "fastboot-clean")
+    case.mkdir()
+    checkpoint = case / "checkpoint"
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_TRACE_BANK="0",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_STOP_PC="0xCA00",
+        JUKU_CHECKPOINT_PREFIX=str(checkpoint),
+    )
+
+    def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
+        if not faults or attempt:
+            return packet
+        if sequence == 2:
+            damaged = bytearray(packet)
+            damaged[100] ^= 1             # valid framing, invalid CRC
+            return bytes(damaged)
+        if sequence == 4:
+            return b""                    # complete packet loss
+        if sequence == 6:
+            return packet + packet        # duplicate after a lost reply
+        return packet
+
+    def receive_reply(
+        sequence: int, attempt: int, _reply: tuple[int, int, int],
+    ) -> bool:
+        # Lose one valid block ACK at the host. Its retransmit is a duplicate,
+        # which the target must verify and ACK without advancing twice.
+        return not (faults and sequence == 8 and attempt == 0)
+
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        try:
+            result = serve_fast(
+                master, FASTBOOT_STAGE1.read_bytes(), MODE2_SYSTEM.read_bytes(),
+                stock_timeout=120, reply_timeout=3, verbose=False,
+                configure_rate=False, block_filter=inject,
+                reply_filter=receive_reply,
+            )
+            process.wait(timeout=20)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            os.close(master)
+
+    require(process.returncode == 0,
+            f"fastboot faults={faults}: cosim exited {process.returncode}")
+    state = parse_state(checkpoint.with_suffix(".state"))
+    ram = checkpoint.with_suffix(".ram").read_bytes()
+    expected = MODE2_SYSTEM.read_bytes()[0x0200:0x1C00]
+    require(state.get("pc") == "CA00", "fastboot did not reach CP/M entry")
+    require(state.get("port_18", "").split(",", 1)[0] == "last:04",
+            "fastboot did not select D57 count 4")
+    require(state.get("port_1B", "").split(",", 1)[0] == "last:15",
+            "fastboot did not select D57 mode 2")
+    require(ram[0xB400:0xCE00] == expected,
+            "fastboot installed system is not byte-exact")
+    require(result["stage_bytes"] <= 640,
+            f"fastboot stage grew to {result['stage_bytes']} bytes")
+    if faults:
+        require(result["retries"] == 3,
+                f"corruption/loss retry count is {result['retries']}")
+    else:
+        require(result["retries"] == 0,
+                f"clean fastboot retried {result['retries']} times")
+    print(
+        f"FASTBOOT {'FAULTS' if faults else 'CLEAN'}: PASS "
+        f"(stage={result['stage_bytes']} bytes/"
+        f"{result['stock_sent_frames']} stock frames, "
+        f"bulk={result['blocks']}x512, retries={result['retries']})"
+    )
 
 def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
     """Read an emulator console PTY until marker or raise with its transcript."""
@@ -761,6 +862,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baudtest-only", action="store_true")
     parser.add_argument("--keyboard-only", action="store_true")
+    parser.add_argument("--fastboot-only", action="store_true")
     parser.add_argument("--game-disk", type=Path,
                         help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
@@ -771,6 +873,7 @@ def main() -> None:
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
+            FASTBOOT_STAGE1,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -778,6 +881,11 @@ def main() -> None:
         work = Path(name)
         trace = work / "trace"
         build_trace(trace)
+        if args.fastboot_only:
+            run_fastboot_case(trace, work, faults=False)
+            run_fastboot_case(trace, work, faults=True)
+            print("JUKU-FASTBOOT-COSIM-CHECK: PASS")
+            return
         if args.keyboard_only:
             run_mode2_keyboard_case(trace, work)
             if args.game_disk:
@@ -850,6 +958,8 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
+        run_fastboot_case(trace, work, faults=False)
+        run_fastboot_case(trace, work, faults=True)
     print("JUKU-NET-COSIM-CHECK: PASS")
 
 

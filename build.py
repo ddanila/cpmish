@@ -19,6 +19,7 @@ export(
         "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-baudtest2-system.bin": "arch/juku+systemfile-net-baudtest2",
         "juku-net-mode2-soak-system.bin": "arch/juku+systemfile-net-mode2-soak",
+        "juku-fastboot-stage1.bin": "arch/juku+fastboot-stage1-bin",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
         "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",
