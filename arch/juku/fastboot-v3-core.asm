@@ -18,6 +18,9 @@ PICMASK         equ     001h
 PICSHADOW       equ     0d454h
 
 EXTENSION       equ     0300h
+.ifdef FASTBOOT_STREAM
+EXTENSION_SIZE  equ     0280h
+.else
 .ifdef FASTBOOT_TIGHT
 EXTENSION_SIZE  equ     0100h
 .else
@@ -27,12 +30,16 @@ EXTENSION_SIZE  equ     0180h
 EXTENSION_SIZE  equ     0100h
 .endif
 .endif
+.endif
 
         org     0100h
 
         ; Self-describing bundle metadata.  Host tooling transfers one core
         ; record and finds the padded extension described by the metadata.
         jmp     start
+.ifdef FASTBOOT_STREAM
+        db      'J','F','V','8'
+.else
 .ifdef FASTBOOT_TIGHT
         db      'J','F','V','7'
 .else
@@ -43,6 +50,7 @@ EXTENSION_SIZE  equ     0100h
         db      'J','F','V','5'
 .else
         db      'J','F','V','3'
+.endif
 .endif
 .endif
 .endif

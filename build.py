@@ -26,6 +26,7 @@ export(
         "juku-fastboot-v5.bin": "arch/juku+fastboot-v5-bin",
         "juku-fastboot-v6.bin": "arch/juku+fastboot-v6-bin",
         "juku-fastboot-v7.bin": "arch/juku+fastboot-v7-bin",
+        "juku-fastboot-v8.bin": "arch/juku+fastboot-v8-bin",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
         "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",

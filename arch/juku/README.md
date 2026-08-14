@@ -242,7 +242,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
     juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin \
-    juku-fastboot-v7.bin
+    juku-fastboot-v7.bin juku-fastboot-v8.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -274,10 +274,11 @@ options are normally needed. The stock ROM bootstrap remains at 9600; only the
 resident CP/M disk protocol changes to the proven high-speed clock. The host
 saves the working image when the session exits.
 
-An unmodified stock ROM can now reach the same CP/M system substantially faster
-by loading only a 558-byte stage through Janet at 9600, then transferring the
-6656-byte resident image as thirteen CRC16-protected 512-byte blocks at the
-proven 19200 mode-2/count-4 setting:
+An unmodified stock ROM can now reach the same CP/M system substantially faster.
+The frozen v1 baseline loads a 558-byte stage through Janet at 9600, then
+transfers the 6656-byte resident image as thirteen CRC16-protected 512-byte
+blocks at the proven 19200 mode-2/count-4 setting; the separately named later
+variants below reduce the stock stage to one record and use streaming:
 
 ```sh
 ../8080-cosim/tools/janet_disk_server.py \
@@ -383,9 +384,10 @@ clock. Its approximately 307.7 kHz D11 input is already near the documented
 310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
 38,400/count-2 x16 experiment would be roughly two times over specification.
 Further speed work stays at 19,200: v6 remains the fastest *timed* physical
-path, v5 is its uncompressed control, and v7 is the physically qualified
-fixed-metadata candidate. V4 remains diagnostic evidence, not a candidate
-default.
+path, v5 is its uncompressed control, v7 is the physically qualified
+fixed-metadata path, and v8 is the separately named simulation-qualified
+receive/decode-overlap candidate. V4 remains diagnostic evidence, not a
+candidate default.
 
 `juku-fastboot-v5.bin` is the physically proven **19,200/8N1 uncompressed
 baseline**. It keeps
@@ -449,6 +451,39 @@ qualifies the implementation and its short handoff guard. The exact first-disk
 timing was not retained, so v6 remains the fastest *timed* baseline and a
 separate logged v7 repeat is still needed before replacing its 6.214-second
 record. Run v7 by substituting `juku-fastboot-v7.bin` in `--fast-stage1`.
+
+`juku-fastboot-v8.bin` is the separate **interrupt-fed overlapping ZX0 desk
+candidate**. It retains v7's one stock record, fixed 4826-byte payload,
+CRC-16/IBM, 19,200/8N1 framing, hard CE00h output fence, retry markers, and
+three success replies. Its 640-byte extension temporarily replaces the first
+three bytes of the writable RomBios `D79Fh` dispatcher with a minimal IR2-only
+trampoline, while saving those bytes verbatim. D11 RxRDY then appends the
+authenticated stream at 4000h and updates its CRC inside the bounded ISR. Once
+256 bytes are buffered, the native ZX0 decoder starts from 4000h while receive
+continues. The host inserts a 2 ms gap after `JZ` so this producer handoff is
+atomic. Before CP/M entry, v8 requires the exact compressed input pointer,
+compressed length and CRC, exact B400h-CE00h output boundary, no USART error,
+and restores the saved `D79Fh` bytes before masking the PIC and replying.
+
+The self-contained artifact is 5602 bytes: 128-byte core, 640-byte extension,
+eight-byte `Z8` descriptor, and the unchanged 4826-byte ZX0 payload. Its
+simulation-qualified SHA-256 is
+`ae89fef7dcce9d6ffd329e0862af9be16710c4b703ff9c0a3c444aa184c34c78`.
+Clean and fault-injected cosim proves byte-exact installation, corrupted
+extension/stream rejection, complete-loss retry, lost-success-reply recovery,
+and full CP/M/network `DIR` operation. The latter performs 34 A: reads with
+zero retries, restores D11 to BIOS mode `5Eh`, and asserts that `D79Fh` is
+byte-exactly restored.
+
+The pinned 1.70 MHz timing model measures v7 at 1,010,204 cycles (0.594 s) from
+the final compressed byte to CA00h. V8 needs 203,037 cycles (0.119 s). After
+charging v8 for its three additional 128-byte extension records (0.200 s at
+the modeled 884 cycles/byte) and the 2 ms marker gap, the deterministic net
+gain is **about 273 ms**. This projects roughly **5.82 s** to the first A:
+request if the earlier v7 6.09-second estimate holds. Treat both numbers as
+desk predictions: v8 still requires a logged CS00015 run, and v6's 6.214 s
+remains the fastest exact physical timing. Run v8 by substituting
+`juku-fastboot-v8.bin` in `--fast-stage1`.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
