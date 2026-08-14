@@ -291,18 +291,22 @@ implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
 and with injected corruption, complete packet loss, duplication, and one lost
 target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
 Physical CS00015 then passed the complete path and reached the visible CP/M
-prompt. Freeze its same-machine comparison as four named baselines:
+prompt. Freeze its same-machine comparison as five named baselines:
 
 | Baseline | First valid Janet request to first valid A: request | Frames in stock phase |
 | --- | ---: | ---: |
+| **Fast stage v5** | **6.551 s** | 18 |
 | **Fast stage v3** | **6.915 s** | 18 |
 | **Fast stage v2** | **12.999 s** | 42 |
 | **Fast stage v1** | **17.508 s** | 42 |
 | **Original stock 9600** | **73.873 s** | 330 |
 
-Fast stage v2 used 8.00 s for the stock stage and 4.39 s for the bulk phase,
+Fast stage v5 used 2.23 s for the stock stage and 3.84 s for the 8N1 extension
+plus stream, with zero retries. It saves 0.364 s (5.3%) over v3 and 67.322 s
+(91.1%, 11.28x) over stock. Fast stage v2 used 8.00 s for the stock stage and
+4.39 s for the bulk phase,
 with zero retries. V1 used 7.99 s for the stock stage and 8.90 s for the bulk
-phase, including one automatically recovered block-0 timeout. All four
+phase, including one automatically recovered block-0 timeout. All five
 baselines used the same image, volume, cable, host, and CS00015 and all reached
 the prompt. V3 used 2.21 s for its one-record stock stage and 4.13 s for its
 extension plus system stream, with zero retries. It is 1.88x faster than v2,
@@ -363,8 +367,9 @@ The first physical CS00015 v4 run failed to negotiate 28,800 but proved the
 fallback end to end. It restored 19,200, transferred the CRC-valid system with
 zero extension/stream retries, reached the visible prompt, and issued the first
 A: request at 9.199 seconds (3.77-second stock stage, 4.95-second bulk including
-negotiation/fallback). That is 2.284 seconds slower than physical v3, so v3
-remains the fastest default. The original host log did not distinguish a lost
+negotiation/fallback). That is 2.284 seconds slower than physical v3, so the
+negotiated high-rate path is not a candidate default. The original host log
+did not distinguish a lost
 target-to-host fast probe from a lost host-to-target ACK/final-ready exchange;
 host logging now records that boundary before any diagnostic repeat.
 
@@ -372,20 +377,24 @@ The project therefore freezes 19,200 mode-2/count-4 x16 as the optimization
 clock. Its approximately 307.7 kHz D11 input is already near the documented
 310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
 38,400/count-2 x16 experiment would be roughly two times over specification.
-Further speed work stays at 19,200: compare 8N1, cycle-test compression, and
-profile avoidable stock-Janet latency. V4 remains diagnostic evidence, not a
-candidate default.
+Further speed work stays at 19,200: retain the physically proven v5 8N1 path,
+test cycle-qualified compression as a separate variant, and profile avoidable
+stock-Janet latency. V4 remains diagnostic evidence, not a candidate default.
 
-`juku-fastboot-v5.bin` is the separate **19,200/8N1 desk candidate**. It keeps
+`juku-fastboot-v5.bin` is the physically proven **19,200/8N1 fastest
+variant**. It keeps
 v3's mode-2/count-4 x16 clock and one-record layout, changes only the extension
 and system-stream framing to D11 mode `4Eh`, then drains its success frames and
 restores mode `5Eh` before NETROM2. The 384-byte bundle contains a 117-byte
 core and 197-byte extension and has SHA-256
 `8fa63db50daaf64f8da9025b443cbe0cb3802d985a4ba5c74630435953d628a4`.
 Clean and injected-fault cosim passes exercise 8N1, compare all 6656 bytes, and
-prove 8O1 restoration at CA00h. The wire-floor saving is about 0.35 seconds,
-predicting a first CS00015 A: request near 6.55 seconds. V3 remains the default
-until v5 passes physically.
+prove 8O1 restoration at CA00h. Physical CS00015 then completed with zero
+extension/stream retries and issued its first A: request at **6.551 seconds**,
+matching the 6.55-second prediction. The stock phase took 2.23 seconds and the
+extension plus stream 3.84 seconds. This is 0.364 seconds (5.3%) faster than v3;
+the prompt and a network `DIR` both worked. Retain byte-identical v3 as the 8O1
+fallback.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -760,8 +769,9 @@ resynchronization, duplicate handling, final whole-image verification, and a
 fixed B400h/6656-byte/CA00h handoff. Compare ACK-per-block with a small window
 and add compression only if the physical end-to-end benchmark improves. At
 19,200 the 6,656-byte bulk wire minimum is about 3.8 seconds; target 4–6 seconds
-for the bulk phase initially. Treat
-mode-2/count-2 nominal 38,400 as a later recoverable experiment, not a default.
+for the bulk phase initially. Keep production fastboot at 19,200: the in-spec
+x1 route failed physically and mode-2/count-2 x16 would exceed the USART clock
+limit by about two times.
 The high-speed path must always leave a clean fallback to stock 9600 Janet.
 
 The physical v2 result changed the priority order: its five-record stock stage
@@ -781,16 +791,18 @@ is not usable with this classic CP2102 because its AN205 table quantizes the
 request to 28,800. V4 instead uses D57 mode 2/count 43 and D11 x1 (about
 28,622.5 baud, -0.62% against host 28,800). It retains 19,200 automatically if
 the bidirectional rate probe fails. Count 3/x16 remains invalid because it
-exceeds the КР580ВВ51А's documented 310 kHz x16 input-clock maximum;
-x1/mode-2/count-32 38,400 is a later experiment.
+exceeds the КР580ВВ51А's documented 310 kHz x16 input-clock maximum. The
+physical x1 negotiation also failed, so higher baud is retired pending new
+electrical evidence.
 
-Compression follows the uncompressed v3 baseline. On the exact current
-6656-byte image, simple RLE reaches 6155 bytes, LZSA1 5498, LZSA2 5129, and ZX0
-classic 4826. Their maximum 19200/8O1 wire savings are only 0.29, 0.66, 0.88,
-and 1.05 seconds respectively before 8080 decompression, so select a format
-only after running the real decoder in the cycle model. An 8N1 bootstrap is
-also a later separately measured variant; it saves about 0.35 seconds at
-19200.
+Compression follows the uncompressed baselines. On the exact current
+6656-byte image, ZX0 classic reaches 4826 bytes and its real 92-byte 8080
+decoder takes 993,353 modeled cycles, or 0.584 seconds at CS00015's measured
+1.70 MHz. Its 1.049-second 19200/8O1 wire saving therefore leaves 0.464 seconds
+gross and about 0.39 seconds after the extra padded extension record. ZX1 is
+only about 6 ms faster overall while using a 36-byte larger decoder. ZX0 is the
+preferred separately named compression experiment; it must beat v3/v5 in a
+physical end-to-end run before becoming a default.
 
 V3 is now implemented: its assembled core is 117/128 bytes and extension is
 172/256 bytes. Clean cosim loads only one stock data record, verifies
