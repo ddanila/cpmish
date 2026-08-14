@@ -43,6 +43,7 @@ FASTBOOT_V3 = ROOT / "juku-fastboot-v3.bin"
 FASTBOOT_V4 = ROOT / "juku-fastboot-v4.bin"
 FASTBOOT_V5 = ROOT / "juku-fastboot-v5.bin"
 FASTBOOT_V6 = ROOT / "juku-fastboot-v6.bin"
+FASTBOOT_V7 = ROOT / "juku-fastboot-v7.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -106,7 +107,7 @@ def run_fastboot_case(
     )
 
     def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
-        if version in (3, 4, 5, 6):
+        if version in (3, 4, 5, 6, 7):
             if not faults:
                 return packet
             if attempt == 0:
@@ -134,7 +135,7 @@ def run_fastboot_case(
         sequence: int, attempt: int, _reply: tuple[int, int, int],
     ) -> bool:
         nonlocal lost_reply
-        if version in (3, 4, 5, 6):
+        if version in (3, 4, 5, 6, 7):
             # The extension repeats its success frame three times. Lose the
             # first copy and prove that the host accepts a later copy without
             # needlessly retransmitting a stream to a target already in CP/M.
@@ -177,6 +178,7 @@ def run_fastboot_case(
                     4: FASTBOOT_V4,
                     5: FASTBOOT_V5,
                     6: FASTBOOT_V6,
+                    7: FASTBOOT_V7,
                 }[version].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120,
@@ -206,12 +208,13 @@ def run_fastboot_case(
             "fastboot did not select D57 mode 2")
     require(ram[0xB400:0xCE00] == expected,
             "fastboot installed system is not byte-exact")
-    if version in (3, 4, 5, 6):
+    if version in (3, 4, 5, 6, 7):
         expected_artifact = {
             3: 384,
             4: 512,
             5: 384,
             6: 5342,
+            7: 5218,
         }[version]
         expected_extension = 384 if version in (4, 6) else 256
         require(
@@ -226,16 +229,16 @@ def run_fastboot_case(
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
     if faults:
-        expected_retries = 2 if version in (3, 4, 5, 6) else 3
+        expected_retries = 2 if version in (3, 4, 5, 6, 7) else 3
         require(result["retries"] == expected_retries,
                 f"corruption/loss retry count is {result['retries']}")
-        if version in (3, 4, 5, 6):
+        if version in (3, 4, 5, 6, 7):
             require(result["extension_retries"] == 1,
                     f"corrupt v{version} extension was not retried once")
     else:
         require(result["retries"] == 0,
                 f"clean fastboot retried {result['retries']} times")
-        if version in (3, 4, 5, 6):
+        if version in (3, 4, 5, 6, 7):
             require(result["extension_retries"] == 0,
                     f"clean v{version} extension unexpectedly retried")
     if version == 4:
@@ -250,23 +253,25 @@ def run_fastboot_case(
                 "probe-ack-or-final-ready-not-received",
                 f"v4 fallback leg is {result['rate_failure_stage']}",
             )
-    if version in (5, 6):
+    if version in (5, 6, 7):
         require(result["transfer_baud"] == 19200,
                 f"v{version} transfer baud is {result['transfer_baud']}")
         require(result["transfer_framing"] == "8N1",
                 f"v{version} framing is {result['transfer_framing']}")
-        require(state.get("usart_mode") == "5E",
-                f"v{version} did not restore 8O1 before CP/M")
+        expected_mode = "4E" if version == 7 else "5E"
+        require(state.get("usart_mode") == expected_mode,
+                f"v{version} handoff USART mode is not {expected_mode}")
         log = (case / "stderr.txt").read_text()
         require("x16 mode=4E" in log,
                 f"v{version} did not exercise 19200/8N1 in the USART model")
-    if version == 6:
+    if version in (6, 7):
         require(result["stream_bytes"] == 4826,
-                f"v6 compressed stream is {result['stream_bytes']} bytes")
+                f"v{version} compressed stream is "
+                f"{result['stream_bytes']} bytes")
     bulk_detail = (
         f"1x{result['stream_bytes']} "
-        f"{'ZX0 ' if version == 6 else ''}stream"
-        if version in (3, 4, 5, 6)
+        f"{'ZX0 ' if version in (6, 7) else ''}stream"
+        if version in (3, 4, 5, 6, 7)
         else f"{result['blocks']}x512"
     )
     rate_detail = f"rate={result['transfer_baud']}, " \
@@ -278,6 +283,98 @@ def run_fastboot_case(
         f"bulk={bulk_detail}, {rate_detail}"
         f"retries={result['retries']})"
     )
+
+
+def run_fastboot_v7_disk_case(trace: Path, work: Path) -> None:
+    """Prove v7's BIOS-owned 8O1 handoff through prompt and network DIR."""
+    case = work / "fastboot-v7-network-dir"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_TRACE_BANK="0",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201|",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_CHECKPOINT_PREFIX=str(case / "final"),
+    )
+    volume = bytearray(MODE2_FLAT.read_bytes())
+    stats: dict[str, int] = {}
+    errors: list[BaseException] = []
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        try:
+            result = serve_fast(
+                master, FASTBOOT_V7.read_bytes(), MODE2_SYSTEM.read_bytes(),
+                stock_timeout=120, reply_timeout=3, verbose=False,
+                configure_rate=False,
+            )
+
+            def disk_worker() -> None:
+                try:
+                    serve_disk(
+                        master, volume, timeout=180, idle_timeout=None,
+                        verbose=False, stats=stats,
+                    )
+                except BaseException as error:
+                    errors.append(error)
+
+            worker = threading.Thread(target=disk_worker)
+            worker.start()
+            first = read_console_until(console_master, b"A>", 120)
+            os.write(console_master, b"DIR\r")
+            second = read_console_until(console_master, b"A>", 120)
+            process.terminate()
+            process.wait(timeout=5)
+            os.close(master)
+            worker.join(timeout=3)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            try:
+                os.close(master)
+            except OSError:
+                pass
+            os.close(console_master)
+
+    require(process.returncode in (-15, 0),
+            "fastboot v7 network DIR cosim did not exit cleanly")
+    require(result["protocol_version"] == 7 and result["retries"] == 0,
+            f"fastboot v7 network handoff retried: {result}")
+    require(b"CP/Mish 2.2 Juku" in first and b"DIR" in second,
+            f"fastboot v7 did not reach prompt/DIR: {first!r} {second!r}")
+    require(stats.get("reads", 0) >= 34,
+            f"fastboot v7 DIR issued too few reads: {stats}")
+    require(all(isinstance(error, OSError) for error in errors),
+            f"fastboot v7 disk server failed: {errors!r}")
+    state = parse_state((case / "final.state"))
+    require(state.get("usart_mode") == "5E",
+            "CP/M BIOS did not restore 19200/8O1 after v7 handoff")
+    log = (case / "stderr.txt").read_text()
+    require("x16 mode=4E" in log and "x16 mode=5E" in log,
+            "v7 did not exercise its 8N1-to-BIOS-8O1 transition")
+    print(
+        "FASTBOOT V7 NETWORK DIR: PASS "
+        f"(reads={stats['reads']}, retries={stats['retries']}, BIOS 8O1)"
+    )
+
 
 def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
     """Read an emulator console PTY until marker or raise with its transcript."""
@@ -991,7 +1088,7 @@ def main() -> None:
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
             FASTBOOT_STAGE1, FASTBOOT_V2, FASTBOOT_V3, FASTBOOT_V4,
             FASTBOOT_V5,
-            FASTBOOT_V6,
+            FASTBOOT_V6, FASTBOOT_V7,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -1000,9 +1097,10 @@ def main() -> None:
         trace = work / "trace"
         build_trace(trace)
         if args.fastboot_only:
-            for version in (1, 2, 3, 4, 5, 6):
+            for version in (1, 2, 3, 4, 5, 6, 7):
                 run_fastboot_case(trace, work, version=version, faults=False)
                 run_fastboot_case(trace, work, version=version, faults=True)
+            run_fastboot_v7_disk_case(trace, work)
             run_fastboot_case(
                 trace, work, version=4, faults=False,
                 force_rate_fallback=True,
@@ -1081,9 +1179,10 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
-        for version in (1, 2, 3, 4, 5, 6):
+        for version in (1, 2, 3, 4, 5, 6, 7):
             run_fastboot_case(trace, work, version=version, faults=False)
             run_fastboot_case(trace, work, version=version, faults=True)
+        run_fastboot_v7_disk_case(trace, work)
         run_fastboot_case(
             trace, work, version=4, faults=False,
             force_rate_fallback=True,

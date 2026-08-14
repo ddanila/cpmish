@@ -241,7 +241,8 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
-    juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin
+    juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin \
+    juku-fastboot-v7.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -382,8 +383,8 @@ clock. Its approximately 307.7 kHz D11 input is already near the documented
 310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
 38,400/count-2 x16 experiment would be roughly two times over specification.
 Further speed work stays at 19,200: v6 is the fastest physical path, v5 is its
-uncompressed control, and the next work is repeated timing plus avoidable
-stock-Janet latency. V4 remains diagnostic evidence, not a candidate default.
+uncompressed control, and v7 is the simulation-qualified fixed-metadata
+candidate. V4 remains diagnostic evidence, not a candidate default.
 
 `juku-fastboot-v5.bin` is the physically proven **19,200/8N1 uncompressed
 baseline**. It keeps
@@ -421,6 +422,29 @@ then completed with zero retries and reached its first A: request at **6.214
 seconds** (2.21-second stock phase, 3.53-second high-speed phase); the prompt
 and network `DIR` worked. Run it by substituting `juku-fastboot-v6.bin` in
 `--fast-stage1`. V3 and v5 remain byte-identical fallbacks.
+
+`juku-fastboot-v7.bin` is the separate **fixed authenticated metadata
+candidate**. It retains v6's one-record stock core, 19,200/8N1 path, 4826-byte
+ZX0 payload, and authenticate-before-decode guarantee. The exact payload
+length and CRC move into the Fletcher-protected extension; the extension reuses
+the core's RX routine and lets CP/M's immediate `NETINIT` restore resident 8O1.
+It therefore fits in 256 rather than 384 transferred bytes, and the stream
+drops its redundant four-byte variable header/trailer.
+
+The self-contained artifact is 5218 bytes: 128-byte core, 256-byte extension,
+eight-byte host descriptor, and 4826-byte payload. Its simulation-qualified
+SHA-256 is
+`bc3897d6d79cfaafd4b747aecc60410b9b1eec6c9296565176c23f38c9677b88`.
+The host validates the descriptor's system CRC, payload length, and payload CRC
+before transfer. Clean and fault-injected cosim proves byte-exact installation,
+corrupt extension/stream rejection, complete-loss retry, and lost-success-reply
+recovery. A full continuation through the real BIOS proves the `4Eh` to `5Eh`
+handoff, reaches `A>`, and completes `DIR` with 34 reads and zero retries.
+The smaller extension/stream plus a safe 20 ms v7 handoff guard predict roughly
+**6.09 seconds** to the first CS00015 A: request, about 0.129 seconds below v6.
+This remains a prediction until the physical benchmark; v6 stays the fastest
+physically proven default. Run v7 by substituting `juku-fastboot-v7.bin` in
+`--fast-stage1`.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
