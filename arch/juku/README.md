@@ -355,9 +355,10 @@ The 512-byte artifact has SHA-256
 `15c016492e7a3ec8f8e1666b387ec1f1a74b7f932b087b1bd21a22bd9be0ab9e`.
 Clean 28,800, corruption/loss/lost-reply, and forced 19,200 fallback cosim
 paths all install B400h-CDFFh byte-exact and enter CA00h. V1-v3 artifacts stay
-byte-identical. The expected first A: request is near 5.8 seconds on CS00015,
-but v4 remains unproven until the attached CP2102 exact-rate readback and the
-physical boot pass.
+byte-identical. The expected first A: request is near 5.8 seconds on CS00015.
+The attached Silicon Labs CP2102 (`10c4:ea60`) passed exact 28,800/8O1 Linux
+`termios2` readback and restored 19,200/8O1 without sending target bytes; only
+the physical Juku negotiation and boot remain before v4 is proven.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
