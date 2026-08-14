@@ -290,24 +290,27 @@ implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
 and with injected corruption, complete packet loss, duplication, and one lost
 target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
 Physical CS00015 then passed the complete path and reached the visible CP/M
-prompt. Freeze its same-machine comparison as two named baselines:
+prompt. Freeze its same-machine comparison as three named baselines:
 
 | Baseline | First valid Janet request to first valid A: request | Frames in stock phase |
 | --- | ---: | ---: |
+| **Fast stage v2** | **12.999 s** | 42 |
 | **Fast stage v1** | **17.508 s** | 42 |
 | **Original stock 9600** | **73.873 s** | 330 |
 
-Fast stage v1 used 7.99 s for the stock stage and 8.90 s for the bulk phase,
-including one automatically recovered block-0 timeout. Both baselines used the
-same image, volume, cable, host, and CS00015 and both reached the prompt. The
-improvement is 4.22x, saving 56.365 s (76.3%). Retain both labels and results;
+Fast stage v2 used 8.00 s for the stock stage and 4.39 s for the bulk phase,
+with zero retries. V1 used 7.99 s for the stock stage and 8.90 s for the bulk
+phase, including one automatically recovered block-0 timeout. All three
+baselines used the same image, volume, cable, host, and CS00015 and all reached
+the prompt. V2 is 1.35x faster than v1, saving 4.509 s (25.8%), and 5.68x
+faster than stock, saving 60.874 s (82.4%). Retain every label and result;
 future optimizations are new variants. The original command above remains the
 fallback after reset.
 
 `juku-fastboot-stage1.bin` is the frozen **Fast stage v1** artifact. Its build
 remains byte-exact at 558 bytes with SHA-256
 `b600758acf2bc10a068b003caf29d8799be6fa35489af6e23b8277360d334646`.
-`juku-fastboot-v2.bin` is the separate 560-byte candidate. V2 checkpoints a
+`juku-fastboot-v2.bin` is the separate, physically proven 560-byte variant. V2 checkpoints a
 cumulative image CRC after every block, retaining the prior checkpoint for
 duplicate recovery, so the last block is also the final whole-image proof and
 the 6656-byte second CRC scan disappears. The host recognizes the version from
@@ -315,9 +318,9 @@ the ready marker. Run v2 by substituting its filename in `--fast-stage1`.
 
 The removed scan is 4,297,085 8080 cycles for this image, about 2.53 seconds at
 CS00015's measured ~1.70 MHz. V2 also gives the repeated header ACK enough time
-to release the half-duplex line, addressing v1's observed block-0 timeout. Its
-first CS00015 target is about 12.8 seconds; this remains a prediction until a
-new physical run is recorded under the distinct **Fast stage v2** label.
+to release the half-duplex line, addressing v1's observed block-0 timeout. The
+model predicted about 12.8 seconds; the physical CS00015 run measured 12.999
+seconds with zero retries and reached the visible CP/M prompt.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
