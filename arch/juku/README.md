@@ -699,6 +699,33 @@ for the bulk phase initially. Treat
 mode-2/count-2 nominal 38,400 as a later recoverable experiment, not a default.
 The high-speed path must always leave a clean fallback to stock 9600 Janet.
 
+The physical v2 result changed the priority order: its five-record stock stage
+took 8.00 seconds, while the whole high-speed bulk phase took only 4.39
+seconds. The next distinct **Fast stage v3** experiment therefore uses one
+stock 128-byte record only. That core selects proven 19200/mode 2, validates a
+compact low-RAM extension sent at high speed, and transfers the fixed resident
+system as one CRC-protected stream. A bad stream is retried in full. This
+removes roughly four stock records (about 5.5 measured seconds) and twelve
+block turnarounds while leaving v1/v2 unchanged as stronger fine-grained retry
+baselines.
+
+V3's system CRC should use the compact byte-wise 8080 method documented in the
+June 1983 IEEE Micro study: its table-free 43-byte implementation was measured
+nearly four times faster than bit-at-a-time CRC. This leaves enough CPU margin
+for a later negotiated 25600 experiment. The preferred intermediate hardware
+setting is D57 mode 2/count 48 and D11 x1 (about 25641 baud, +0.16% against the
+host), not count 3/x16: the latter exceeds the КР580ВВ51А's documented 310 kHz
+x16 input-clock maximum. Retain 19200 automatically if the bidirectional rate
+probe fails; x1/mode-2/count-32 38400 is a later experiment.
+
+Compression follows the uncompressed v3 baseline. On the exact current
+6656-byte image, simple RLE reaches 6155 bytes, LZSA1 5498, LZSA2 5129, and ZX0
+classic 4826. Their maximum 19200/8O1 wire savings are only 0.29, 0.66, 0.88,
+and 1.05 seconds respectively before 8080 decompression, so select a format
+only after running the real decoder in the cycle model. An 8N1 bootstrap is
+also a later separately measured variant; it saves about 0.35 seconds at
+19200.
+
 Loss/corruption/duplicate injection and byte-exact RAM before entry now pass in
 cosim. Automated reset/re-discovery remains open. Bench qualification requires
 at least ten consecutive cold/warm physical boots on both CS00014 and CS00015
