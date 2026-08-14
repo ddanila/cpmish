@@ -290,19 +290,23 @@ implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
 and with injected corruption, complete packet loss, duplication, and one lost
 target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
 Physical CS00015 then passed the complete path and reached the visible CP/M
-prompt. Freeze its same-machine comparison as three named baselines:
+prompt. Freeze its same-machine comparison as four named baselines:
 
 | Baseline | First valid Janet request to first valid A: request | Frames in stock phase |
 | --- | ---: | ---: |
+| **Fast stage v3** | **6.915 s** | 18 |
 | **Fast stage v2** | **12.999 s** | 42 |
 | **Fast stage v1** | **17.508 s** | 42 |
 | **Original stock 9600** | **73.873 s** | 330 |
 
 Fast stage v2 used 8.00 s for the stock stage and 4.39 s for the bulk phase,
 with zero retries. V1 used 7.99 s for the stock stage and 8.90 s for the bulk
-phase, including one automatically recovered block-0 timeout. All three
+phase, including one automatically recovered block-0 timeout. All four
 baselines used the same image, volume, cable, host, and CS00015 and all reached
-the prompt. V2 is 1.35x faster than v1, saving 4.509 s (25.8%), and 5.68x
+the prompt. V3 used 2.21 s for its one-record stock stage and 4.13 s for its
+extension plus system stream, with zero retries. It is 1.88x faster than v2,
+saving 6.084 s (46.8%), and 10.68x faster than stock, saving 66.958 s (90.6%).
+V2 is 1.35x faster than v1, saving 4.509 s (25.8%), and 5.68x
 faster than stock, saving 60.874 s (82.4%). Retain every label and result;
 future optimizations are new variants. The original command above remains the
 fallback after reset.
@@ -322,7 +326,7 @@ to release the half-duplex line, addressing v1's observed block-0 timeout. The
 model predicted about 12.8 seconds; the physical CS00015 run measured 12.999
 seconds with zero retries and reached the visible CP/M prompt.
 
-`juku-fastboot-v3.bin` is the current **Fast stage v3 bench candidate**. It is
+`juku-fastboot-v3.bin` is the physically proven **Fast stage v3** artifact. It is
 a self-describing 384-byte host artifact, but only its 128-byte executable core
 travels through stock Janet at 9600 (one stock data record). The core changes
 to proven 19200/8O1 and authenticates the remaining 256-byte extension with a
@@ -331,7 +335,7 @@ one stream, verifies CRC-16/IBM before entry, repeats its success reply three
 times, and retries a bad stream in full. Clean and injected-fault cosim both
 reach CA00h with B400h-CDFFh byte-exact; the fault case rejects a corrupted
 extension, rejects a corrupted system, recovers from one wholly lost stream,
-and tolerates a lost first success reply. Its pre-bench SHA-256 is
+and tolerates a lost first success reply. Its physically tested SHA-256 is
 `bf5104c3d7af271a52defa54acf7773daf032461ff303cc04f0fe4e5ba49b22a`.
 Run it by substituting `juku-fastboot-v3.bin` in `--fast-stage1`; no ROM change
 is required.
@@ -746,8 +750,13 @@ the extension and strong-CRC stream, installs all 6656 bytes byte-exact, and
 enters CA00h. The injected-fault run also rejects a corrupt extension and
 stream, recovers after total stream loss, and accepts the second of three
 success replies when the first is lost. Automated reset/re-discovery remains
-open. Bench qualification starts with a timed CS00015 boot, then requires at
-least ten consecutive cold/warm physical boots on both CS00014 and CS00015
+open. The first physical CS00015 attempt authenticated the extension, then
+exposed the host's one-second USB serial write-room timeout while queuing the
+long stream. Granting only that stream a ten-second stall allowance adds no
+intentional delay. After reset, the second run reached the visible prompt with
+18 stock frames, zero retries, a 2.21-second stage, a 4.13-second high-speed
+phase, and the first valid A: request at 6.915 seconds. Broader qualification
+still requires ten consecutive cold/warm boots on both CS00014 and CS00015
 with timings, retries, and UART errors saved.
 
 The regression runs all 68 ideal cases and a negative control that truncates
