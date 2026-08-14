@@ -357,8 +357,24 @@ Clean 28,800, corruption/loss/lost-reply, and forced 19,200 fallback cosim
 paths all install B400h-CDFFh byte-exact and enter CA00h. V1-v3 artifacts stay
 byte-identical. The expected first A: request is near 5.8 seconds on CS00015.
 The attached Silicon Labs CP2102 (`10c4:ea60`) passed exact 28,800/8O1 Linux
-`termios2` readback and restored 19,200/8O1 without sending target bytes; only
-the physical Juku negotiation and boot remain before v4 is proven.
+`termios2` readback and restored 19,200/8O1 without sending target bytes.
+
+The first physical CS00015 v4 run failed to negotiate 28,800 but proved the
+fallback end to end. It restored 19,200, transferred the CRC-valid system with
+zero extension/stream retries, reached the visible prompt, and issued the first
+A: request at 9.199 seconds (3.77-second stock stage, 4.95-second bulk including
+negotiation/fallback). That is 2.284 seconds slower than physical v3, so v3
+remains the fastest default. The original host log did not distinguish a lost
+target-to-host fast probe from a lost host-to-target ACK/final-ready exchange;
+host logging now records that boundary before any diagnostic repeat.
+
+The project therefore freezes 19,200 mode-2/count-4 x16 as the optimization
+clock. Its approximately 307.7 kHz D11 input is already near the documented
+310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
+38,400/count-2 x16 experiment would be roughly two times over specification.
+Further speed work stays at 19,200: compare 8N1, cycle-test compression, and
+profile avoidable stock-Janet latency. V4 remains diagnostic evidence, not a
+candidate default.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation

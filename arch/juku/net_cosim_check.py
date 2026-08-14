@@ -235,6 +235,12 @@ def run_fastboot_case(
                 f"v4 transfer baud is {result['transfer_baud']}")
         require(result["rate_fallback"] == int(force_rate_fallback),
                 f"v4 fallback result is {result['rate_fallback']}")
+        if force_rate_fallback:
+            require(
+                result["rate_failure_stage"] ==
+                "probe-ack-or-final-ready-not-received",
+                f"v4 fallback leg is {result['rate_failure_stage']}",
+            )
     bulk_detail = "1x6656 stream" if version in (3, 4) else \
         f"{result['blocks']}x512"
     rate_detail = f"rate={result['transfer_baud']}, " \
