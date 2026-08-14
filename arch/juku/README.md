@@ -852,13 +852,27 @@ electrical evidence.
 Compression follows the uncompressed baselines. On the exact current
 6656-byte image, ZX0 classic reaches 4826 bytes and its real 92-byte 8080
 decoder takes 993,353 modeled cycles, or 0.584 seconds at CS00015's measured
-1.70 MHz. Its 1.049-second 19200/8O1 wire saving therefore leaves 0.464 seconds
-gross and about 0.39 seconds after the extra padded extension record. ZX1 is
-only about 6 ms faster overall while using a 36-byte larger decoder. ZX0 is the
-preferred separately named compression experiment. V6 now implements it and
-measured 6.214 seconds to the first A: request on CS00015, with the visible
-prompt and `DIR` proven. This beats v5 by 0.337 seconds and v3 by 0.701 seconds,
-so v6 is the fastest default while the prior variants remain unchanged.
+1.70 MHz. At v7's actual 19200/8N1 framing, its stream plus decode takes about
+3.098 seconds.
+
+A post-v7 cycle audit also ran byte-exact Intel 8080 decoders for ZX1, ZX2,
+LZ4, Exomizer P43/P47T4, and a conservative format-derived LZSA2 benchmark.
+None beats ZX0 after both wire time and 128-byte extension padding are counted:
+ZX2 is about 93 ms slower, LZ4 184 ms slower, ZX1 49 ms slower, ratio-mode
+LZSA2 175 ms slower, and Exomizer at least 990 ms slower. LZSA2's former
+external 8080 source repository has disappeared; an optimized replacement
+that needs one extra extension record would have to finish below roughly
+612,000 cycles merely to tie ZX0, versus 795,228 for the conservative passing
+benchmark. The detailed measurements and source provenance are retained in
+`8080-cosim/docs/janet-fastboot.md`.
+
+ZX0 is therefore the fastest measured and layout-valid choice, not merely the
+smallest-stream choice. V6 implements it and measured 6.214 seconds to the
+first A: request on CS00015, with the visible prompt and `DIR` proven. This
+beats v5 by 0.337 seconds and v3 by 0.701 seconds. V7 retains ZX0 while removing
+one extension record and is physically qualified; v6 remains the fastest
+exactly timed default until the v7 timing repeat. Prior variants remain
+unchanged.
 
 V3 is now implemented: its assembled core is 117/128 bytes and extension is
 172/256 bytes. Clean cosim loads only one stock data record, verifies
