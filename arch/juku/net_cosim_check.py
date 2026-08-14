@@ -40,6 +40,7 @@ MODE2_SOAK_FLAT = ROOT / "juku-net-mode2-soak.img"
 FASTBOOT_STAGE1 = ROOT / "juku-fastboot-stage1.bin"
 FASTBOOT_V2 = ROOT / "juku-fastboot-v2.bin"
 FASTBOOT_V3 = ROOT / "juku-fastboot-v3.bin"
+FASTBOOT_V4 = ROOT / "juku-fastboot-v4.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -76,9 +77,12 @@ def parse_state(path: Path) -> dict[str, str]:
 
 def run_fastboot_case(
     trace: Path, work: Path, *, version: int, faults: bool,
+    force_rate_fallback: bool = False,
 ) -> None:
     """Run the real stage-1 code through stock Janet and the bulk protocol."""
-    case = work / f"fastboot-v{version}-{'faults' if faults else 'clean'}"
+    suffix = "fallback" if force_rate_fallback else \
+        ("faults" if faults else "clean")
+    case = work / f"fastboot-v{version}-{suffix}"
     case.mkdir()
     checkpoint = case / "checkpoint"
     master, slave = pty.openpty()
@@ -100,7 +104,7 @@ def run_fastboot_case(
     )
 
     def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
-        if version == 3:
+        if version in (3, 4):
             if not faults:
                 return packet
             if attempt == 0:
@@ -128,11 +132,13 @@ def run_fastboot_case(
         sequence: int, attempt: int, _reply: tuple[int, int, int],
     ) -> bool:
         nonlocal lost_reply
-        if version == 3:
+        if version in (3, 4):
             # The extension repeats its success frame three times. Lose the
             # first copy and prove that the host accepts a later copy without
             # needlessly retransmitting a stream to a target already in CP/M.
-            if faults and sequence == 0 and attempt == 2 and not lost_reply:
+            success_sequence = 4 if version == 4 else 0
+            if faults and sequence == success_sequence and attempt == 2 \
+                    and not lost_reply:
                 lost_reply = True
                 return False
             return True
@@ -146,6 +152,11 @@ def run_fastboot_case(
         damaged = bytearray(packet)
         damaged[50] ^= 1                  # Fletcher check must reject it
         return bytes(damaged)
+
+    def filter_rate_probe(rate_flag: int, packet: bytes) -> bytes:
+        if force_rate_fallback and rate_flag == 1:
+            return b""
+        return packet
 
     with (case / "stdout.txt").open("w") as stdout, \
             (case / "stderr.txt").open("w") as stderr:
@@ -161,6 +172,7 @@ def run_fastboot_case(
                     1: FASTBOOT_STAGE1,
                     2: FASTBOOT_V2,
                     3: FASTBOOT_V3,
+                    4: FASTBOOT_V4,
                 }[version].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120,
@@ -169,6 +181,7 @@ def run_fastboot_case(
                 configure_rate=False, block_filter=inject,
                 reply_filter=receive_reply,
                 extension_filter=inject_extension,
+                rate_probe_filter=filter_rate_probe,
             )
             process.wait(timeout=20)
         finally:
@@ -189,12 +202,14 @@ def run_fastboot_case(
             "fastboot did not select D57 mode 2")
     require(ram[0xB400:0xCE00] == expected,
             "fastboot installed system is not byte-exact")
-    if version == 3:
+    if version in (3, 4):
+        expected_artifact = 384 if version == 3 else 512
+        expected_extension = 256 if version == 3 else 384
         require(
             result["stage_bytes"] == 128
-            and result["artifact_bytes"] == 384
-            and result["extension_bytes"] == 256,
-            f"fastboot v3 sizes changed: {result}",
+            and result["artifact_bytes"] == expected_artifact
+            and result["extension_bytes"] == expected_extension,
+            f"fastboot v{version} sizes changed: {result}",
         )
     else:
         require(result["stage_bytes"] <= 640,
@@ -202,23 +217,33 @@ def run_fastboot_case(
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
     if faults:
-        expected_retries = 2 if version == 3 else 3
+        expected_retries = 2 if version in (3, 4) else 3
         require(result["retries"] == expected_retries,
                 f"corruption/loss retry count is {result['retries']}")
-        if version == 3:
+        if version in (3, 4):
             require(result["extension_retries"] == 1,
-                    "corrupt v3 extension was not retried exactly once")
+                    f"corrupt v{version} extension was not retried once")
     else:
         require(result["retries"] == 0,
                 f"clean fastboot retried {result['retries']} times")
-        if version == 3:
+        if version in (3, 4):
             require(result["extension_retries"] == 0,
-                    "clean v3 extension unexpectedly retried")
+                    f"clean v{version} extension unexpectedly retried")
+    if version == 4:
+        expected_baud = 19200 if force_rate_fallback else 28800
+        require(result["transfer_baud"] == expected_baud,
+                f"v4 transfer baud is {result['transfer_baud']}")
+        require(result["rate_fallback"] == int(force_rate_fallback),
+                f"v4 fallback result is {result['rate_fallback']}")
+    bulk_detail = "1x6656 stream" if version in (3, 4) else \
+        f"{result['blocks']}x512"
+    rate_detail = f"rate={result['transfer_baud']}, " \
+        if version == 4 else ""
     print(
         f"FASTBOOT V{version} {'FAULTS' if faults else 'CLEAN'}: PASS "
         f"(stage={result['stage_bytes']} bytes/"
         f"{result['stock_sent_frames']} stock frames, "
-        f"bulk={'1x6656 stream' if version == 3 else str(result['blocks']) + 'x512'}, "
+        f"bulk={bulk_detail}, {rate_detail}"
         f"retries={result['retries']})"
     )
 
@@ -932,7 +957,7 @@ def main() -> None:
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
-            FASTBOOT_STAGE1, FASTBOOT_V2, FASTBOOT_V3,
+            FASTBOOT_STAGE1, FASTBOOT_V2, FASTBOOT_V3, FASTBOOT_V4,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -941,9 +966,13 @@ def main() -> None:
         trace = work / "trace"
         build_trace(trace)
         if args.fastboot_only:
-            for version in (1, 2, 3):
+            for version in (1, 2, 3, 4):
                 run_fastboot_case(trace, work, version=version, faults=False)
                 run_fastboot_case(trace, work, version=version, faults=True)
+            run_fastboot_case(
+                trace, work, version=4, faults=False,
+                force_rate_fallback=True,
+            )
             print("JUKU-FASTBOOT-COSIM-CHECK: PASS")
             return
         if args.keyboard_only:
@@ -1018,9 +1047,13 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             run_fastboot_case(trace, work, version=version, faults=False)
             run_fastboot_case(trace, work, version=version, faults=True)
+        run_fastboot_case(
+            trace, work, version=4, faults=False,
+            force_rate_fallback=True,
+        )
     print("JUKU-NET-COSIM-CHECK: PASS")
 
 

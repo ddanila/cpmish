@@ -240,7 +240,8 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-baudtest2-system.bin juku-net-baudtest2.img \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
-    juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin
+    juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
+    juku-fastboot-v4.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -339,6 +340,24 @@ and tolerates a lost first success reply. Its physically tested SHA-256 is
 `bf5104c3d7af271a52defa54acf7773daf032461ff303cc04f0fe4e5ba49b22a`.
 Run it by substituting `juku-fastboot-v3.bin` in `--fast-stage1`; no ROM change
 is required.
+
+`juku-fastboot-v4.bin` is the separate **negotiated 28,800 desk candidate**.
+The classic CP2102/AN205 rate table does not provide 25,600; Linux quantizes
+that request to the next table entry, 28,800. V4 therefore pairs exact host
+28,800 with D57 mode 2/count 43 and D11 x1, about 28,622.5 baud (-0.62%). Its
+123-byte one-record core still loads the 381-byte extension at proven 19,200.
+The extension requests and acknowledges a bidirectional fast-rate probe before
+streaming. If the probe or exact host-rate setup fails, it restores 19,200 and
+repeats an acknowledged fallback probe until both ends agree. Both ends return
+to 19,200 before NETROM2 starts.
+
+The 512-byte artifact has SHA-256
+`15c016492e7a3ec8f8e1666b387ec1f1a74b7f932b087b1bd21a22bd9be0ab9e`.
+Clean 28,800, corruption/loss/lost-reply, and forced 19,200 fallback cosim
+paths all install B400h-CDFFh byte-exact and enter CA00h. V1-v3 artifacts stay
+byte-identical. The expected first A: request is near 5.8 seconds on CS00015,
+but v4 remains unproven until the attached CP2102 exact-rate readback and the
+physical boot pass.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -727,14 +746,15 @@ removes roughly four stock records (about 5.5 measured seconds) and twelve
 block turnarounds while leaving v1/v2 unchanged as stronger fine-grained retry
 baselines.
 
-V3's system CRC should use the compact byte-wise 8080 method documented in the
-June 1983 IEEE Micro study: its table-free 43-byte implementation was measured
-nearly four times faster than bit-at-a-time CRC. This leaves enough CPU margin
-for a later negotiated 25600 experiment. The preferred intermediate hardware
-setting is D57 mode 2/count 48 and D11 x1 (about 25641 baud, +0.16% against the
-host), not count 3/x16: the latter exceeds the КР580ВВ51А's documented 310 kHz
-x16 input-clock maximum. Retain 19200 automatically if the bidirectional rate
-probe fails; x1/mode-2/count-32 38400 is a later experiment.
+V3's system CRC uses the compact byte-wise 8080 method documented in the June
+1983 IEEE Micro study; its table-free 43-byte implementation was measured
+nearly four times faster than bit-at-a-time CRC. The original 25,600 proposal
+is not usable with this classic CP2102 because its AN205 table quantizes the
+request to 28,800. V4 instead uses D57 mode 2/count 43 and D11 x1 (about
+28,622.5 baud, -0.62% against host 28,800). It retains 19,200 automatically if
+the bidirectional rate probe fails. Count 3/x16 remains invalid because it
+exceeds the КР580ВВ51А's documented 310 kHz x16 input-clock maximum;
+x1/mode-2/count-32 38,400 is a later experiment.
 
 Compression follows the uncompressed v3 baseline. On the exact current
 6656-byte image, simple RLE reaches 6155 bytes, LZSA1 5498, LZSA2 5129, and ZX0
