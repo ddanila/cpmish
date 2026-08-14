@@ -109,6 +109,18 @@ zmac(
     relocatable=False,
 )
 zmac(
+    name="fastboot-v6-core",
+    src="./fastboot-v3-core.asm",
+    defines=["FASTBOOT_8N1", "FASTBOOT_ZX0"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v6-extension",
+    src="./fastboot-v3-extension.asm",
+    defines=["FASTBOOT_8N1", "FASTBOOT_ZX0"],
+    relocatable=False,
+)
+zmac(
     name="fastboot-v4-core",
     src="./fastboot-v4-core.asm",
     relocatable=False,
@@ -221,6 +233,21 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETMODE2SYSTEM",
+)
+simplerule(
+    name="fastboot-v6-bin",
+    ins=[
+        ".+fastboot-v6-core",
+        ".+fastboot-v6-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v6.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v6.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV6",
 )
 simplerule(
     name="systemfile-net-smoke",

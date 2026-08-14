@@ -1,12 +1,12 @@
-; Strong-CRC streaming extension for Fast stage v3.
+; Strong-CRC streaming extension for Fast stages v3, v5, and v6.
 ; Copyright (c) 2026 Danila Sukharev
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
-; The one-record core installs this at 0300h after selecting 19200/8O1.  The
-; extension receives the fixed 6656-byte resident system as one stream.  A
-; CRC-16/IBM polynomial check protects execution; a bad stream restarts and
-; is retransmitted in full.  The compact byte-wise CRC transform is adapted
-; from Aram Perez, IEEE Micro, June 1983, pp. 41-50.
+; The one-record core installs this at 0300h after selecting 19200. V3/v5
+; receive the fixed 6656-byte resident system directly; v6 authenticates and
+; expands one length-bounded ZX0 stream. A CRC-16/IBM check protects execution;
+; a bad stream restarts and is retransmitted in full. The compact byte-wise
+; CRC transform is adapted from Aram Perez, IEEE Micro, June 1983, pp. 41-50.
 
 USARTDATA       equ     008h
 USARTCTL        equ     009h
@@ -14,10 +14,16 @@ USARTCTL        equ     009h
 DESTINATION     equ     0b400h
 ENTRY           equ     0ca00h
 SYSTEM_SIZE     equ     01a00h
+.ifdef FASTBOOT_ZX0
+COMPRESSED      equ     04000h
+COMPRESSED_LIMIT equ    01800h
+PROTOCOL_VERSION equ    6
+.else
 .ifdef FASTBOOT_8N1
 PROTOCOL_VERSION equ    5
 .else
 PROTOCOL_VERSION equ    3
+.endif
 .endif
 
         org     0300h
@@ -25,6 +31,50 @@ PROTOCOL_VERSION equ    3
 session:
         call    send_ready
 
+.ifdef FASTBOOT_ZX0
+        ; Compressed packet: 'J','Z', length-hi, length-lo, ZX0-classic data,
+        ; CRC-hi, CRC-lo. The CRC authenticates the compressed representation;
+        ; a valid deterministic stream therefore authenticates its output too.
+find_j:
+        call    rx
+        cpi     'J'
+        jnz     find_j
+        call    rx
+        cpi     'Z'
+        jnz     find_j
+
+        call    rx
+        mov     b,a
+        cpi     COMPRESSED_LIMIT/256    ; reject > 6143 bytes
+        jnc     session
+        call    rx
+        mov     c,a
+        mov     a,b
+        ora     c                       ; reject zero length
+        jz      session
+
+        lxi     h,COMPRESSED
+        lxi     d,0                     ; CRC-16/IBM initial value
+receive_system:
+        call    rx
+        mov     m,a
+        inx     h
+        call    crc_byte_fast
+        dcx     b
+        mov     a,b
+        ora     c
+        jnz     receive_system
+        call    rx
+        cmp     d
+        jnz     session
+        call    rx
+        cmp     e
+        jnz     session
+
+        lxi     d,COMPRESSED
+        lxi     b,DESTINATION
+        call    dzx0
+.else
         ; Stream packet: 'J','S', 6656 data bytes, CRC-hi, CRC-lo.
 find_j:
         call    rx
@@ -52,6 +102,7 @@ receive_system:
         call    rx
         cmp     e
         jnz     session
+.endif
 
         call    send_success_three
 
@@ -66,6 +117,83 @@ drain:
         call    restore_8o1
 .endif
         jmp     ENTRY
+
+.ifdef FASTBOOT_ZX0
+; ZX0 classic-format Intel 8080 decoder by Ivan Gorodetsky, based on the ZX0
+; Z80 decoder by Einar Saukas. v7 (2022-04-30), 92-byte forward variant.
+; Input: DE = compressed source; BC = decompressed destination.
+dzx0:
+        lxi     h,0ffffh
+        push    h
+        inx     h
+        mvi     a,080h
+dzx0_literals:
+        call    dzx0_elias
+        call    dzx0_ldir
+        jc      dzx0_new_offset
+        call    dzx0_elias
+dzx0_copy:
+        xchg
+        xthl
+        push    h
+        dad     b
+        xchg
+        call    dzx0_ldir
+        xchg
+        pop     h
+        xthl
+        xchg
+        jnc     dzx0_literals
+dzx0_new_offset:
+        call    dzx0_elias
+        mov     h,a
+        pop     psw
+        xra     a
+        sub     l
+        rz
+        push    h
+        rar
+        mov     h,a
+        ldax    d
+        rar
+        mov     l,a
+        inx     d
+        xthl
+        mov     a,h
+        lxi     h,1
+        cnc     dzx0_elias_backtrack
+        inx     h
+        jmp     dzx0_copy
+dzx0_elias:
+        inr     l
+dzx0_elias_loop:
+        add     a
+        jnz     dzx0_elias_skip
+        ldax    d
+        inx     d
+        ral
+dzx0_elias_skip:
+        rc
+dzx0_elias_backtrack:
+        dad     h
+        add     a
+        jnc     dzx0_elias_loop
+        jmp     dzx0_elias
+dzx0_ldir:
+        push    psw
+dzx0_ldir1:
+        ldax    d
+        stax    b
+        inx     d
+        inx     b
+        dcx     h
+        mov     a,h
+        ora     l
+        jnz     dzx0_ldir1
+        pop     psw
+        add     a
+        ret
+.endif
 
 .ifdef FASTBOOT_8N1
 ; NETROM2 and the host-backed disk remain at the proven 19200/8O1 framing.
@@ -166,6 +294,12 @@ success_frame:
         db      'J','A',0,0,'J' xor 'A'
 
 extension_end:
+.ifdef FASTBOOT_ZX0
+        .if     extension_end-0300h > 384
+        .error  "Fastboot v6 extension exceeds three records"
+        .endif
+.else
         .if     extension_end-0300h > 256
         .error  "Fastboot v3 extension exceeds two records"
         .endif
+.endif

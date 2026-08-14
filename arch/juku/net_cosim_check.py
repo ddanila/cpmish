@@ -42,6 +42,7 @@ FASTBOOT_V2 = ROOT / "juku-fastboot-v2.bin"
 FASTBOOT_V3 = ROOT / "juku-fastboot-v3.bin"
 FASTBOOT_V4 = ROOT / "juku-fastboot-v4.bin"
 FASTBOOT_V5 = ROOT / "juku-fastboot-v5.bin"
+FASTBOOT_V6 = ROOT / "juku-fastboot-v6.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -105,7 +106,7 @@ def run_fastboot_case(
     )
 
     def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
-        if version in (3, 4, 5):
+        if version in (3, 4, 5, 6):
             if not faults:
                 return packet
             if attempt == 0:
@@ -133,7 +134,7 @@ def run_fastboot_case(
         sequence: int, attempt: int, _reply: tuple[int, int, int],
     ) -> bool:
         nonlocal lost_reply
-        if version in (3, 4, 5):
+        if version in (3, 4, 5, 6):
             # The extension repeats its success frame three times. Lose the
             # first copy and prove that the host accepts a later copy without
             # needlessly retransmitting a stream to a target already in CP/M.
@@ -175,6 +176,7 @@ def run_fastboot_case(
                     3: FASTBOOT_V3,
                     4: FASTBOOT_V4,
                     5: FASTBOOT_V5,
+                    6: FASTBOOT_V6,
                 }[version].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120,
@@ -204,9 +206,14 @@ def run_fastboot_case(
             "fastboot did not select D57 mode 2")
     require(ram[0xB400:0xCE00] == expected,
             "fastboot installed system is not byte-exact")
-    if version in (3, 4, 5):
-        expected_artifact = 512 if version == 4 else 384
-        expected_extension = 384 if version == 4 else 256
+    if version in (3, 4, 5, 6):
+        expected_artifact = {
+            3: 384,
+            4: 512,
+            5: 384,
+            6: 5342,
+        }[version]
+        expected_extension = 384 if version in (4, 6) else 256
         require(
             result["stage_bytes"] == 128
             and result["artifact_bytes"] == expected_artifact
@@ -219,16 +226,16 @@ def run_fastboot_case(
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
     if faults:
-        expected_retries = 2 if version in (3, 4, 5) else 3
+        expected_retries = 2 if version in (3, 4, 5, 6) else 3
         require(result["retries"] == expected_retries,
                 f"corruption/loss retry count is {result['retries']}")
-        if version in (3, 4, 5):
+        if version in (3, 4, 5, 6):
             require(result["extension_retries"] == 1,
                     f"corrupt v{version} extension was not retried once")
     else:
         require(result["retries"] == 0,
                 f"clean fastboot retried {result['retries']} times")
-        if version in (3, 4, 5):
+        if version in (3, 4, 5, 6):
             require(result["extension_retries"] == 0,
                     f"clean v{version} extension unexpectedly retried")
     if version == 4:
@@ -243,18 +250,25 @@ def run_fastboot_case(
                 "probe-ack-or-final-ready-not-received",
                 f"v4 fallback leg is {result['rate_failure_stage']}",
             )
-    if version == 5:
+    if version in (5, 6):
         require(result["transfer_baud"] == 19200,
-                f"v5 transfer baud is {result['transfer_baud']}")
+                f"v{version} transfer baud is {result['transfer_baud']}")
         require(result["transfer_framing"] == "8N1",
-                f"v5 framing is {result['transfer_framing']}")
+                f"v{version} framing is {result['transfer_framing']}")
         require(state.get("usart_mode") == "5E",
-                "v5 did not restore 8O1 before CP/M")
+                f"v{version} did not restore 8O1 before CP/M")
         log = (case / "stderr.txt").read_text()
         require("x16 mode=4E" in log,
-                "v5 did not exercise 19200/8N1 in the USART model")
-    bulk_detail = "1x6656 stream" if version in (3, 4, 5) else \
-        f"{result['blocks']}x512"
+                f"v{version} did not exercise 19200/8N1 in the USART model")
+    if version == 6:
+        require(result["stream_bytes"] == 4826,
+                f"v6 compressed stream is {result['stream_bytes']} bytes")
+    bulk_detail = (
+        f"1x{result['stream_bytes']} "
+        f"{'ZX0 ' if version == 6 else ''}stream"
+        if version in (3, 4, 5, 6)
+        else f"{result['blocks']}x512"
+    )
     rate_detail = f"rate={result['transfer_baud']}, " \
         if version == 4 else ""
     print(
@@ -977,6 +991,7 @@ def main() -> None:
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
             FASTBOOT_STAGE1, FASTBOOT_V2, FASTBOOT_V3, FASTBOOT_V4,
             FASTBOOT_V5,
+            FASTBOOT_V6,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -985,7 +1000,7 @@ def main() -> None:
         trace = work / "trace"
         build_trace(trace)
         if args.fastboot_only:
-            for version in (1, 2, 3, 4, 5):
+            for version in (1, 2, 3, 4, 5, 6):
                 run_fastboot_case(trace, work, version=version, faults=False)
                 run_fastboot_case(trace, work, version=version, faults=True)
             run_fastboot_case(
@@ -1066,7 +1081,7 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
-        for version in (1, 2, 3, 4, 5):
+        for version in (1, 2, 3, 4, 5, 6):
             run_fastboot_case(trace, work, version=version, faults=False)
             run_fastboot_case(trace, work, version=version, faults=True)
         run_fastboot_case(

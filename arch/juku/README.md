@@ -241,7 +241,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
-    juku-fastboot-v4.bin juku-fastboot-v5.bin
+    juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -291,22 +291,26 @@ implemented. `make juku-fastboot-cosim-check` executes the real stage cleanly
 and with injected corruption, complete packet loss, duplication, and one lost
 target ACK, compares B400h-CDFFh byte-for-byte, and requires entry at CA00h.
 Physical CS00015 then passed the complete path and reached the visible CP/M
-prompt. Freeze its same-machine comparison as five named baselines:
+prompt. Freeze its same-machine comparison as six named baselines:
 
 | Baseline | First valid Janet request to first valid A: request | Frames in stock phase |
 | --- | ---: | ---: |
+| **Fast stage v6** | **6.214 s** | 18 |
 | **Fast stage v5** | **6.551 s** | 18 |
 | **Fast stage v3** | **6.915 s** | 18 |
 | **Fast stage v2** | **12.999 s** | 42 |
 | **Fast stage v1** | **17.508 s** | 42 |
 | **Original stock 9600** | **73.873 s** | 330 |
 
-Fast stage v5 used 2.23 s for the stock stage and 3.84 s for the 8N1 extension
+Fast stage v6 used 2.21 s for the stock stage and 3.53 s for its 384-byte
+extension, 4826-byte ZX0 stream, and decode. It saves 0.337 s (5.1%) over v5,
+0.701 s (10.1%) over v3, and 67.659 s (91.6%, 11.89x) over stock. Fast stage
+v5 used 2.23 s for the stock stage and 3.84 s for the 8N1 extension
 plus stream, with zero retries. It saves 0.364 s (5.3%) over v3 and 67.322 s
 (91.1%, 11.28x) over stock. Fast stage v2 used 8.00 s for the stock stage and
 4.39 s for the bulk phase,
 with zero retries. V1 used 7.99 s for the stock stage and 8.90 s for the bulk
-phase, including one automatically recovered block-0 timeout. All five
+phase, including one automatically recovered block-0 timeout. All six
 baselines used the same image, volume, cable, host, and CS00015 and all reached
 the prompt. V3 used 2.21 s for its one-record stock stage and 4.13 s for its
 extension plus system stream, with zero retries. It is 1.88x faster than v2,
@@ -377,12 +381,12 @@ The project therefore freezes 19,200 mode-2/count-4 x16 as the optimization
 clock. Its approximately 307.7 kHz D11 input is already near the documented
 310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
 38,400/count-2 x16 experiment would be roughly two times over specification.
-Further speed work stays at 19,200: retain the physically proven v5 8N1 path,
-test cycle-qualified compression as a separate variant, and profile avoidable
+Further speed work stays at 19,200: v6 is the fastest physical path, v5 is its
+uncompressed control, and the next work is repeated timing plus avoidable
 stock-Janet latency. V4 remains diagnostic evidence, not a candidate default.
 
-`juku-fastboot-v5.bin` is the physically proven **19,200/8N1 fastest
-variant**. It keeps
+`juku-fastboot-v5.bin` is the physically proven **19,200/8N1 uncompressed
+baseline**. It keeps
 v3's mode-2/count-4 x16 clock and one-record layout, changes only the extension
 and system-stream framing to D11 mode `4Eh`, then drains its success frames and
 restores mode `5Eh` before NETROM2. The 384-byte bundle contains a 117-byte
@@ -395,6 +399,28 @@ matching the 6.55-second prediction. The stock phase took 2.23 seconds and the
 extension plus stream 3.84 seconds. This is 0.364 seconds (5.3%) faster than v3;
 the prompt and a network `DIR` both worked. Retain byte-identical v3 as the 8O1
 fallback.
+
+`juku-fastboot-v6.bin` is the physically proven **19,200/8N1 + ZX0 fastest
+variant**. Its stock-loaded core remains one 128-byte record. The core loads a
+384-byte high-speed extension containing Ivan Gorodetsky's 92-byte Intel 8080
+ZX0 decoder, and the extension receives a length-bounded 4826-byte
+ZX0-classic stream protected by CRC-16/IBM. It authenticates the compressed
+representation before decoding to B400h-CDFFh, restores 8O1, and enters CA00h;
+a corrupt stream is never decoded.
+
+The self-contained 5342-byte host artifact contains a 120-byte core padded to
+128, a 313-byte extension padded to 384, a four-byte resident descriptor, and
+the compressed payload. Its SHA-256 is
+`74826eeb5e95feb6b9f1bed7d7b5957447166a7f3ac2722633e4cff7768babf0`.
+The build vendors the BSD-3-Clause ZX0 v2.2 compressor and regenerates the
+payload deterministically. The host verifies that the embedded original-image
+CRC matches the supplied system image. Clean and injected-fault cosim paths
+prove byte-exact decompression, compressed CRC rejection, complete-stream-loss
+recovery, lost-success-reply recovery, and 8O1 restoration. Physical CS00015
+then completed with zero retries and reached its first A: request at **6.214
+seconds** (2.21-second stock phase, 3.53-second high-speed phase); the prompt
+and network `DIR` worked. Run it by substituting `juku-fastboot-v6.bin` in
+`--fast-stage1`. V3 and v5 remain byte-identical fallbacks.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -801,8 +827,10 @@ decoder takes 993,353 modeled cycles, or 0.584 seconds at CS00015's measured
 1.70 MHz. Its 1.049-second 19200/8O1 wire saving therefore leaves 0.464 seconds
 gross and about 0.39 seconds after the extra padded extension record. ZX1 is
 only about 6 ms faster overall while using a 36-byte larger decoder. ZX0 is the
-preferred separately named compression experiment; it must beat v3/v5 in a
-physical end-to-end run before becoming a default.
+preferred separately named compression experiment. V6 now implements it and
+measured 6.214 seconds to the first A: request on CS00015, with the visible
+prompt and `DIR` proven. This beats v5 by 0.337 seconds and v3 by 0.701 seconds,
+so v6 is the fastest default while the prior variants remain unchanged.
 
 V3 is now implemented: its assembled core is 117/128 bytes and extension is
 172/256 bytes. Clean cosim loads only one stock data record, verifies
