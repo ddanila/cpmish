@@ -240,7 +240,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-baudtest2-system.bin juku-net-baudtest2.img \
     juku-net-mode2-system.bin juku-net-mode2.img \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
-    juku-fastboot-stage1.bin juku-fastboot-v2.bin
+    juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -321,6 +321,20 @@ CS00015's measured ~1.70 MHz. V2 also gives the repeated header ACK enough time
 to release the half-duplex line, addressing v1's observed block-0 timeout. The
 model predicted about 12.8 seconds; the physical CS00015 run measured 12.999
 seconds with zero retries and reached the visible CP/M prompt.
+
+`juku-fastboot-v3.bin` is the current **Fast stage v3 bench candidate**. It is
+a self-describing 384-byte host artifact, but only its 128-byte executable core
+travels through stock Janet at 9600 (one stock data record). The core changes
+to proven 19200/8O1 and authenticates the remaining 256-byte extension with a
+compact Fletcher guard. That extension receives the fixed 6656-byte system in
+one stream, verifies CRC-16/IBM before entry, repeats its success reply three
+times, and retries a bad stream in full. Clean and injected-fault cosim both
+reach CA00h with B400h-CDFFh byte-exact; the fault case rejects a corrupted
+extension, rejects a corrupted system, recovers from one wholly lost stream,
+and tolerates a lost first success reply. Its pre-bench SHA-256 is
+`bf5104c3d7af271a52defa54acf7773daf032461ff303cc04f0fe4e5ba49b22a`.
+Run it by substituting `juku-fastboot-v3.bin` in `--fast-stage1`; no ROM change
+is required.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -726,9 +740,14 @@ only after running the real decoder in the cycle model. An 8N1 bootstrap is
 also a later separately measured variant; it saves about 0.35 seconds at
 19200.
 
-Loss/corruption/duplicate injection and byte-exact RAM before entry now pass in
-cosim. Automated reset/re-discovery remains open. Bench qualification requires
-at least ten consecutive cold/warm physical boots on both CS00014 and CS00015
+V3 is now implemented: its assembled core is 117/128 bytes and extension is
+172/256 bytes. Clean cosim loads only one stock data record, verifies
+the extension and strong-CRC stream, installs all 6656 bytes byte-exact, and
+enters CA00h. The injected-fault run also rejects a corrupt extension and
+stream, recovers after total stream loss, and accepts the second of three
+success replies when the first is lost. Automated reset/re-discovery remains
+open. Bench qualification starts with a timed CS00015 boot, then requires at
+least ten consecutive cold/warm physical boots on both CS00014 and CS00015
 with timings, retries, and UART errors saved.
 
 The regression runs all 68 ideal cases and a negative control that truncates

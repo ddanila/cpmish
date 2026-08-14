@@ -16,11 +16,12 @@ juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin \
 		juku-net-baudtest-ladder.img juku-net-baudtest2-system.bin \
 		juku-net-baudtest2.img juku-net-mode2-soak-system.bin \
 		juku-net-mode2-soak.img juku-fastboot-stage1.bin \
-		juku-fastboot-v2.bin juku.img
+		juku-fastboot-v2.bin juku-fastboot-v3.bin juku.img
 	python3 arch/juku/net_cosim_check.py
 
 .PHONY: juku-fastboot-cosim-check
 juku-fastboot-cosim-check: juku-fastboot-stage1.bin juku-fastboot-v2.bin \
+		juku-fastboot-v3.bin \
 		juku-net-mode2-system.bin
 	python3 arch/juku/net_cosim_check.py --fastboot-only
 
