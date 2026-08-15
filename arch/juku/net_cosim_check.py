@@ -45,6 +45,7 @@ FASTBOOT_V5 = ROOT / "juku-fastboot-v5.bin"
 FASTBOOT_V6 = ROOT / "juku-fastboot-v6.bin"
 FASTBOOT_V7 = ROOT / "juku-fastboot-v7.bin"
 FASTBOOT_V8 = ROOT / "juku-fastboot-v8.bin"
+FASTBOOT_V9 = ROOT / "juku-fastboot-v9.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -72,6 +73,7 @@ IO_PATTERN = re.compile(
 )
 FASTBOOT_BYTE_CYCLES = 884
 FASTBOOT_V7_TAIL_CYCLES = 1_010_204
+FASTBOOT_V8_TAIL_CYCLES = 203_037
 FASTBOOT_V8_MARKER_GAP_CYCLES = 3_400
 
 
@@ -111,7 +113,7 @@ def run_fastboot_case(
     )
 
     def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
-        if version in (3, 4, 5, 6, 7, 8):
+        if version in (3, 4, 5, 6, 7, 8, 9):
             if not faults:
                 return packet
             if attempt == 0:
@@ -139,7 +141,7 @@ def run_fastboot_case(
         sequence: int, attempt: int, _reply: tuple[int, int, int],
     ) -> bool:
         nonlocal lost_reply
-        if version in (3, 4, 5, 6, 7, 8):
+        if version in (3, 4, 5, 6, 7, 8, 9):
             # The extension repeats its success frame three times. Lose the
             # first copy and prove that the host accepts a later copy without
             # needlessly retransmitting a stream to a target already in CP/M.
@@ -184,6 +186,7 @@ def run_fastboot_case(
                     6: FASTBOOT_V6,
                     7: FASTBOOT_V7,
                     8: FASTBOOT_V8,
+                    9: FASTBOOT_V9,
                 }[version].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120,
@@ -193,7 +196,7 @@ def run_fastboot_case(
                 reply_filter=receive_reply,
                 extension_filter=inject_extension,
                 rate_probe_filter=filter_rate_probe,
-                compact_stock_execute=(version == 8),
+                compact_stock_execute=(version in (8, 9)),
             )
             process.wait(timeout=20)
         finally:
@@ -218,7 +221,7 @@ def run_fastboot_case(
             "fastboot did not select D57 mode 2")
     require(ram[0xB400:0xCE00] == expected,
             "fastboot installed system is not byte-exact")
-    if version in (3, 4, 5, 6, 7, 8):
+    if version in (3, 4, 5, 6, 7, 8, 9):
         expected_artifact = {
             3: 384,
             4: 512,
@@ -226,11 +229,13 @@ def run_fastboot_case(
             6: 5342,
             7: 5218,
             8: 5602,
+            9: 5518,
         }[version]
         expected_extension = {
             4: 384,
             6: 384,
             8: 640,
+            9: 556,
         }.get(version, 256)
         require(
             result["stage_bytes"] == 128
@@ -243,25 +248,25 @@ def run_fastboot_case(
                 f"fastboot stage grew to {result['stage_bytes']} bytes")
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
-    if version == 8:
+    if version in (8, 9):
         require(
             result["stock_sent_frames"] ==
             14 + 2 * result["stock_ack_09"]
             and result["stock_compact_execute"] == 1
             and result["stock_execute_service_bytes"] == 1,
-            f"fastboot v8 compact stock execute changed: {result}",
+            f"fastboot v{version} compact stock execute changed: {result}",
         )
     if faults:
-        expected_retries = 2 if version in (3, 4, 5, 6, 7, 8) else 3
+        expected_retries = 2 if version in (3, 4, 5, 6, 7, 8, 9) else 3
         require(result["retries"] == expected_retries,
                 f"corruption/loss retry count is {result['retries']}")
-        if version in (3, 4, 5, 6, 7, 8):
+        if version in (3, 4, 5, 6, 7, 8, 9):
             require(result["extension_retries"] == 1,
                     f"corrupt v{version} extension was not retried once")
     else:
         require(result["retries"] == 0,
                 f"clean fastboot retried {result['retries']} times")
-        if version in (3, 4, 5, 6, 7, 8):
+        if version in (3, 4, 5, 6, 7, 8, 9):
             require(result["extension_retries"] == 0,
                     f"clean v{version} extension unexpectedly retried")
     if version == 4:
@@ -276,41 +281,54 @@ def run_fastboot_case(
                 "probe-ack-or-final-ready-not-received",
                 f"v4 fallback leg is {result['rate_failure_stage']}",
             )
-    if version in (5, 6, 7, 8):
+    if version in (5, 6, 7, 8, 9):
         require(result["transfer_baud"] == 19200,
                 f"v{version} transfer baud is {result['transfer_baud']}")
         require(result["transfer_framing"] == "8N1",
                 f"v{version} framing is {result['transfer_framing']}")
-        expected_mode = "4E" if version in (7, 8) else "5E"
+        expected_mode = "4E" if version in (7, 8, 9) else "5E"
         require(state.get("usart_mode") == expected_mode,
                 f"v{version} handoff USART mode is not {expected_mode}")
         log = (case / "stderr.txt").read_text()
         require("x16 mode=4E" in log,
                 f"v{version} did not exercise 19200/8N1 in the USART model")
-    if version in (6, 7, 8):
+    if version in (6, 7, 8, 9):
         require(result["stream_bytes"] == 4826,
                 f"v{version} compressed stream is "
                 f"{result['stream_bytes']} bytes")
     timing_detail = ""
-    if version == 8 and not faults:
+    if version in (8, 9) and not faults:
         last_rx_cycle = int(state["usart_rx_next_cyc"]) - \
             FASTBOOT_BYTE_CYCLES
         tail_cycles = int(state["cyc"]) - last_rx_cycle
-        modeled_v8_cost = (
+        extension_bytes = {8: 640, 9: 556}[version]
+        modeled_cost = (
             tail_cycles
-            + (640 - 256) * FASTBOOT_BYTE_CYCLES
+            + (extension_bytes - 256) * FASTBOOT_BYTE_CYCLES
             + FASTBOOT_V8_MARKER_GAP_CYCLES
         )
-        require(modeled_v8_cost < FASTBOOT_V7_TAIL_CYCLES,
-                "fastboot v8 no longer beats the pinned v7 timing model")
+        require(modeled_cost < FASTBOOT_V7_TAIL_CYCLES,
+                f"fastboot v{version} no longer beats the v7 timing model")
         gain_ms = (
-            FASTBOOT_V7_TAIL_CYCLES - modeled_v8_cost
+            FASTBOOT_V7_TAIL_CYCLES - modeled_cost
         ) / 1700
-        timing_detail = f", modeled-gain={gain_ms:.0f}ms"
+        timing_detail = (
+            f", tail={tail_cycles}cyc, modeled-v7-gain={gain_ms:.0f}ms"
+        )
+        if version == 9:
+            v8_cost = (
+                FASTBOOT_V8_TAIL_CYCLES
+                + (640 - 256) * FASTBOOT_BYTE_CYCLES
+                + FASTBOOT_V8_MARKER_GAP_CYCLES
+            )
+            v9_gain_ms = (v8_cost - modeled_cost) / 1700
+            require(v9_gain_ms > 0,
+                    "fastboot v9 no longer beats the v8 timing model")
+            timing_detail += f", modeled-v8-gain={v9_gain_ms:.0f}ms"
     bulk_detail = (
         f"1x{result['stream_bytes']} "
-        f"{'ZX0 ' if version in (6, 7, 8) else ''}stream"
-        if version in (3, 4, 5, 6, 7, 8)
+        f"{'ZX0 ' if version in (6, 7, 8, 9) else ''}stream"
+        if version in (3, 4, 5, 6, 7, 8, 9)
         else f"{result['blocks']}x512"
     )
     rate_detail = f"rate={result['transfer_baud']}, " \
@@ -326,7 +344,7 @@ def run_fastboot_case(
 
 def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
-    require(version in (7, 8), f"unsupported compact fastboot v{version}")
+    require(version in (7, 8, 9), f"unsupported compact fastboot v{version}")
     case = work / f"fastboot-v{version}-network-dir"
     case.mkdir()
     master, slave = pty.openpty()
@@ -361,11 +379,14 @@ def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
         os.close(console_slave)
         try:
             result = serve_fast(
-                master, {7: FASTBOOT_V7, 8: FASTBOOT_V8}[version].read_bytes(),
+                master,
+                {7: FASTBOOT_V7, 8: FASTBOOT_V8, 9: FASTBOOT_V9}[
+                    version
+                ].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120, reply_timeout=3, verbose=False,
                 configure_rate=False,
-                compact_stock_execute=(version == 8),
+                compact_stock_execute=(version in (8, 9)),
             )
 
             def disk_worker() -> None:
@@ -1134,7 +1155,7 @@ def main() -> None:
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
             FASTBOOT_STAGE1, FASTBOOT_V2, FASTBOOT_V3, FASTBOOT_V4,
             FASTBOOT_V5,
-            FASTBOOT_V6, FASTBOOT_V7, FASTBOOT_V8,
+            FASTBOOT_V6, FASTBOOT_V7, FASTBOOT_V8, FASTBOOT_V9,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -1143,11 +1164,12 @@ def main() -> None:
         trace = work / "trace"
         build_trace(trace)
         if args.fastboot_only:
-            for version in (1, 2, 3, 4, 5, 6, 7, 8):
+            for version in (1, 2, 3, 4, 5, 6, 7, 8, 9):
                 run_fastboot_case(trace, work, version=version, faults=False)
                 run_fastboot_case(trace, work, version=version, faults=True)
             run_fastboot_disk_case(trace, work, 7)
             run_fastboot_disk_case(trace, work, 8)
+            run_fastboot_disk_case(trace, work, 9)
             run_fastboot_case(
                 trace, work, version=4, faults=False,
                 force_rate_fallback=True,
@@ -1226,11 +1248,12 @@ def main() -> None:
         run_baudtest_ladder_case(trace, work)
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
-        for version in (1, 2, 3, 4, 5, 6, 7, 8):
+        for version in (1, 2, 3, 4, 5, 6, 7, 8, 9):
             run_fastboot_case(trace, work, version=version, faults=False)
             run_fastboot_case(trace, work, version=version, faults=True)
         run_fastboot_disk_case(trace, work, 7)
         run_fastboot_disk_case(trace, work, 8)
+        run_fastboot_disk_case(trace, work, 9)
         run_fastboot_case(
             trace, work, version=4, faults=False,
             force_rate_fallback=True,

@@ -1,4 +1,4 @@
-; Interrupt-fed streaming ZX0 extension for Fast stage v8.
+; Interrupt-fed streaming ZX0 extension for Fast stages v8/v9.
 ; Copyright (c) 2026 Danila Sukharev
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
@@ -20,7 +20,12 @@ DESTINATION_END equ     0ce00h
 ENTRY           equ     0ca00h
 COMPRESSED      equ     04000h
 RING            equ     00700h
+.ifdef FASTBOOT_POLL_MARKERS
+PROTOCOL_VERSION equ    9
+CORE_RX         equ     016eh
+.else
 PROTOCOL_VERSION equ    8
+.endif
 
         org     0300h
 
@@ -38,28 +43,56 @@ start:
         sta     ROM_DISPATCH
         lxi     h,irq_dispatch
         shld    ROM_DISPATCH+1
+.ifdef FASTBOOT_POLL_MARKERS
+        mvi     a,020h                 ; retire stock Janet's active IR2 turn
+        out     PICCTL
+        mvi     a,0ffh                 ; poll markers; IRQs only carry payload
+.else
         call    reset_idle
         mvi     a,020h                 ; retire stock Janet's active IR2 turn
         out     PICCTL
         mvi     a,0fbh                 ; unmask only D11 RxRDY / IR2
+.endif
         out     PICMASK
         sta     PICSHADOW
+.ifndef FASTBOOT_POLL_MARKERS
         ei
+.endif
 
 session:
+.ifndef FASTBOOT_POLL_MARKERS
         call    reset_idle
+.endif
         call    send_ready
 
 find_j:
+.ifdef FASTBOOT_POLL_MARKERS
+        call    CORE_RX
+.else
         call    marker_get
+.endif
         cpi     'J'
         jnz     find_j
+.ifdef FASTBOOT_POLL_MARKERS
+        call    CORE_RX
+.else
         call    marker_get
+.endif
         cpi     'Z'
         jnz     find_j
 
         ; The builder patches the immutable compressed length.  Arm CRC and
         ; byte accounting before the first payload character can arrive.
+.ifdef FASTBOOT_POLL_MARKERS
+        ; Polling clears D11 RxRDY but leaves the masked PIC request latched.
+        ; Let one ISR consume that stale copy while input_left is still zero;
+        ; the host's 2 ms post-JZ gap keeps payload bytes out of this window.
+        mvi     a,0fbh
+        out     PICMASK
+        sta     PICSHADOW
+        ei
+        nop
+.endif
         di
         lxi     h,0a55ah
         shld    input_left
@@ -69,8 +102,10 @@ find_j:
         sta     receive_failed
         lxi     h,COMPRESSED
         shld    input_write
+.ifndef FASTBOOT_POLL_MARKERS
         inr     a
         sta     payload_active
+.endif
         lxi     h,0
         dad     sp
         shld    saved_sp
@@ -153,8 +188,15 @@ abort_drain:
         ora     l
         ei
         jnz     abort_drain
+.ifdef FASTBOOT_POLL_MARKERS
+        di
+        mvi     a,0ffh
+        out     PICMASK
+        sta     PICSHADOW
+.endif
         jmp     session
 
+.ifndef FASTBOOT_POLL_MARKERS
 reset_idle:
         di
         xra     a
@@ -189,6 +231,7 @@ marker_have:
         ei
         pop     h
         ret
+.endif
 
 ; Return one compressed byte in A and advance DE. The fixed 256-byte lead,
 ; exact final DE, CRC, and clean/fault cosim keep this native fast path safe.
@@ -212,18 +255,22 @@ rx_isr:
         mov     a,b
         ani     038h
         jz      rx_error_done
+.ifndef FASTBOOT_POLL_MARKERS
         lda     payload_active
         ora     a
         jz      rx_reset_error
+.endif
         mvi     a,1
         sta     receive_failed
 rx_reset_error:
         mvi     a,035h
         out     USARTCTL
 rx_error_done:
+.ifndef FASTBOOT_POLL_MARKERS
         lda     payload_active
         ora     a
         jz      rx_store
+.endif
         lhld    input_left
         mov     a,h
         ora     l
@@ -241,6 +288,7 @@ rx_error_done:
         inx     h
         shld    input_write
         jmp     rx_exit
+.ifndef FASTBOOT_POLL_MARKERS
 rx_store:
         lda     ring_head
         mov     e,a
@@ -258,6 +306,7 @@ rx_store:
 rx_full:
         ; Harmless idle garbage is discarded; marker_get normally consumes it
         ; substantially faster than the wire can fill this page.
+.endif
 rx_exit:
         mvi     a,020h
         out     PICCTL
@@ -447,12 +496,16 @@ ready_frame:
 success_frame:
         db      'J','A',0,0,'J' xor 'A'
 
+.ifndef FASTBOOT_POLL_MARKERS
 ring_head:      db      0
 ring_tail:      db      0
+.endif
 input_left:     dw      0
 crc_value:      dw      0
 input_write:    dw      0
+.ifndef FASTBOOT_POLL_MARKERS
 payload_active: db      0
+.endif
 receive_failed: db      0
 saved_sp:       dw      0
 saved_dispatch: db      0,0,0

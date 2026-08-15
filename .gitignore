@@ -17,6 +17,7 @@ __pycache__/
 /juku-fastboot-v6.bin
 /juku-fastboot-v7.bin
 /juku-fastboot-v8.bin
+/juku-fastboot-v9.bin
 /cs*-baudtest*.json
 /cs*-baudtest*.log
 /cs*-mode2-soak.json

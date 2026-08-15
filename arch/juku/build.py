@@ -144,6 +144,20 @@ zmac(
     relocatable=False,
 )
 zmac(
+    name="fastboot-v9-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V9",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v9-extension",
+    src="./fastboot-v8-extension.asm",
+    defines=["FASTBOOT_POLL_MARKERS"],
+    relocatable=False,
+)
+zmac(
     name="fastboot-v4-core",
     src="./fastboot-v4-core.asm",
     relocatable=False,
@@ -301,6 +315,21 @@ simplerule(
         "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
     ],
     label="JUKUFASTBOOTV8",
+)
+simplerule(
+    name="fastboot-v9-bin",
+    ins=[
+        ".+fastboot-v9-core",
+        ".+fastboot-v9-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v9.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV9",
 )
 simplerule(
     name="systemfile-net-smoke",

@@ -242,7 +242,7 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
     juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin \
-    juku-fastboot-v7.bin juku-fastboot-v8.bin
+    juku-fastboot-v7.bin juku-fastboot-v8.bin juku-fastboot-v9.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -495,6 +495,23 @@ cosim paths pass. The `06h` end descriptor and its full fixed descriptor could
 not be removed or shortened and remain unchanged. V8 plus this policy projects
 roughly **5.64 s**, pending a logged CS00015 run; ordinary stock boot retains
 the captured padded execute form by default.
+
+`juku-fastboot-v9.bin` is the separate **polled-marker, exact-extension desk
+candidate**. It retains v8's interrupt-fed 4826-byte payload and concurrent
+ZX0 decode, but polls the two-byte `JZ` marker through the core receiver before
+unmasking IR2. It explicitly services the stale PIC request left by the polled
+`Z` during the existing 2 ms host gap, then uses a payload-only ISR without the
+idle ring or payload-state branches. Its core publishes an exact 16-bit
+extension length, so the 556-byte extension is no longer padded to 640 bytes.
+
+The artifact is 5518 bytes with SHA-256
+`7dd745e67ac400c22a229a796e77dd51239df793ec5375bf9ebc6bd8069de924`.
+Clean/fault cosim and a full CP/M `DIR` continuation pass byte-exactly. V9 takes
+78,667 cycles from the final compressed byte to CA00h, versus v8's 203,037;
+including exact extension transfer it models **117 ms faster than v8** and
+**390 ms faster than v7**. Together with compact stock execute this projects
+about **5.52 s** to the first disk request. It remains a desk candidate pending
+a logged CS00015 run; v8 and all earlier artifacts remain byte-identical.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation

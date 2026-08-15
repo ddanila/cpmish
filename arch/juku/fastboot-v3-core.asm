@@ -3,12 +3,13 @@
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
 ; The bundle builder pads this executable to exactly one 128-byte Janet
-; record and appends a separately assembled padded extension.  Only the
-; first record travels through the stock 9600 protocol.  This core switches
-; D57/D11 to proven 19200/8O1, receives the extension at 0300h, protects it
-; with Fletcher-16, and enters it.  A malformed transfer is ignored; the host
-; retransmission supplies enough bytes for the fixed-length receiver to
-; finish, reject, and resynchronise without growing a timeout into the core.
+; record and appends a separately assembled extension. V3-v8 describe that
+; extension in padded records; v9 carries its exact byte count. Only the core
+; record travels through stock 9600. It switches D57/D11 to proven 19200/8O1,
+; receives the extension at 0300h, protects it with Fletcher-16, and enters it.
+; A malformed transfer is ignored; the host retransmission supplies enough
+; bytes for the fixed-length receiver to finish, reject, and resynchronise
+; without growing a timeout into the core.
 
 USARTDATA       equ     008h
 USARTCTL        equ     009h
@@ -35,10 +36,14 @@ EXTENSION_SIZE  equ     0100h
         org     0100h
 
         ; Self-describing bundle metadata.  Host tooling transfers one core
-        ; record and finds the padded extension described by the metadata.
+        ; record and finds the padded or exact extension in the metadata.
         jmp     start
 .ifdef FASTBOOT_STREAM
+.ifdef FASTBOOT_V9
+        db      'J','F','V','9'
+.else
         db      'J','F','V','8'
+.endif
 .else
 .ifdef FASTBOOT_TIGHT
         db      'J','F','V','7'
@@ -55,7 +60,12 @@ EXTENSION_SIZE  equ     0100h
 .endif
 .endif
         db      1                       ; core records
+.ifdef FASTBOOT_V9
+        db      0                       ; exact byte count follows
+        dw      0a55ah                  ; builder patches extension bytes
+.else
         db      EXTENSION_SIZE/128      ; extension records
+.endif
 
 start:
         di
@@ -98,7 +108,11 @@ find_first:
 
         lxi     h,EXTENSION
 .ifdef FASTBOOT_ZX0
+.ifdef FASTBOOT_V9
+        lxi     b,0a55ah                 ; builder patches exact byte count
+.else
         lxi     b,EXTENSION_SIZE
+.endif
 .else
         mvi     b,0                     ; 256 iterations by wraparound
 .endif
