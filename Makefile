@@ -61,5 +61,10 @@ juku-ram-output-cosim-check: juku-net-v2-ramout-system.bin juku-net-v2.img
 juku-ram-bios-cosim-check: juku-net-v2-rambio-system.bin juku-net-v2.img
 	python3 arch/juku/net_cosim_check.py --ram-bios-only
 
+.PHONY: juku-netdisk-v3-cosim-check
+juku-netdisk-v3-cosim-check: juku-net-v3-rambio-system.bin \
+	juku-fastboot-v15-netdisk-v3.bin juku-net-v2.img
+	python3 arch/juku/net_cosim_check.py --netdisk-v3-only
+
 TARGETS = +all
 include build/ab.mk

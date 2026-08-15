@@ -609,10 +609,12 @@ same BIOS falls back to opcode 11h; old BIOS images ignore `N2` and remain
 compatible with the current server. Writes still use the proven synchronous
 opcode 12h path.
 
-The rejected alternative was a four-record read-ahead cache. The fixed
-B400h-CDFFh resident image leaves only the audited CF00h-CFFFh page before the
-monitor-owned D000h region, not the 512 bytes that design needs. NetDisk v2
-therefore uses no undocumented RAM and does not reduce the TPA.
+The read-ahead alternative is rejected specifically for this frozen RomBios
+layout. The fixed B400h-CDFFh resident image leaves only the audited
+CF00h-CFFFh page before the monitor-owned D000h region, not the space that a
+cache needs. NetDisk v2 therefore uses no undocumented RAM and does not reduce
+the TPA. The independent RAM BIOS described below has a different ownership
+boundary and can implement read-ahead safely.
 
 `make juku-netdisk-benchmark` runs V14 twice against the same files. It proves
 complete `DIR` and `TYPE README.TXT` transcripts, then runs `RDBENCH.COM`, a
@@ -851,6 +853,55 @@ stream. The stock ROM starts again on the same serial connection, scripted
 bounded failed exchange. A second V15 transfer then reaches `C600h` byte-exact.
 The server permits three complete bootstrap rediscoveries by default, closing
 the formerly open automated power-reset/restart case.
+
+Stage 3 is the separately named `juku-net-v3-rambio-system.bin`, carried by
+`juku-fastboot-v15-netdisk-v3.bin`. It keeps V15's deterministic transport and
+the independent 51K RAM BIOS, but expands the resident through `D3FFh` and uses
+the otherwise firmware-owned `D080h..D3FFh` region for three cached records and
+the NetDisk-v3 client. This is safe only because cold start has executed `DI`,
+masked every PIC input, selected permanent all-RAM mode 3, and detached all
+RomBios services. The RomBios/V14 artifacts and their memory boundary remain
+unchanged.
+
+The host advertises `NRN3`. Opcode 14h returns up to three records in exact
+Juku translated-sector order and may cross a track boundary. Every record has
+its track, sector, and one bounded encoding: raw 128 bytes, uniform fill,
+deleted-directory fill, or literal prefix plus repeated tail byte. A
+CRC16/IBM covers the complete `DJ` response body. Invalid CRC, sequence,
+status, record count, or encoding causes the client to repeat the identical
+request; writes invalidate the cache and retain the synchronous v1/v2 write
+path. The server inserts a 4 ms guard between encoded record descriptors. The
+cycle-accurate model showed why this is required: local 8080 fill expansion
+takes longer than one wire character, and streaming the next descriptor
+immediately can overrun D11's one-byte receive buffer.
+
+Negotiation is backward compatible. An `N2` host selects compact one-record
+opcode 13h, while a legacy repeated `NR` selects raw opcode 11h. The focused
+regression proves a complete prompt and `DIR` with all three hosts: v3 needs 12
+requests for at least 35 records, while v2 and v1 each need 35. It also corrupts
+the first v3 CRC and proves exactly one retry, then exercises stock Janet,
+fastboot V15, byte-exact installation, all-RAM handoff, and v3 `DIR` end to end.
+Run it with `make juku-netdisk-v3-cosim-check`.
+
+The current v3 fastboot artifact is 6,585 bytes: 125/128 bytes of core, 267
+extension bytes, an eight-byte `ZF` descriptor, and a 6,182-byte ZX0 stream
+expanding to 9,216 bytes. SHA-256 is
+`1c4200490ac7607c2a9046f2fc2d7c1b7214f15d6b481d575d92ff9ca8ad9c6f`.
+The V15 loader and host validator alone accept this larger stream below their
+8 KiB compressed-buffer boundary; older V6-V14 limits remain frozen.
+
+This is ready for a future physical RAM-BIOS/NetDisk-v3 experiment, but remains
+simulator-qualified. Build and serve it with:
+
+```sh
+cd ~/fun/cpmish && make juku-fastboot-v15-netdisk-v3.bin \
+    juku-net-v3-rambio-system.bin juku-net-v2.img
+../8080-cosim/tools/janet_disk_server.py \
+    --fast-stage1 juku-fastboot-v15-netdisk-v3.bin \
+    --compact-stock-execute --fast-low-latency-guards \
+    --disk-baud 19200 --disk-protocol 3 --writable --timeout 86400 \
+    /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
+```
 
 Both RAM artifacts remain simulator-proven experiments, not hardware-qualified
 replacements for the frozen V14/RomBios path. The RomBios 52K path remains the

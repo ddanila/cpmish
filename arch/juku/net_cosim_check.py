@@ -32,6 +32,7 @@ MODE2_FLAT = ROOT / "juku-net-mode2.img"
 NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
 RAMOUT_SYSTEM = ROOT / "juku-net-v2-ramout-system.bin"
 RAMBIOS_SYSTEM = ROOT / "juku-net-v2-rambio-system.bin"
+RAMBIOS_V3_SYSTEM = ROOT / "juku-net-v3-rambio-system.bin"
 RAMOUT_FONT = ROOT / "arch" / "juku" / "ram-console-font.asm"
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
@@ -60,6 +61,7 @@ FASTBOOT_V13 = ROOT / "juku-fastboot-v13.bin"
 FASTBOOT_V14 = ROOT / "juku-fastboot-v14.bin"
 FASTBOOT_V14_NETDISK_V2 = ROOT / "juku-fastboot-v14-netdisk-v2.bin"
 FASTBOOT_V15_RAMBIOS = ROOT / "juku-fastboot-v15-rambio.bin"
+FASTBOOT_V15_NETDISK_V3 = ROOT / "juku-fastboot-v15-netdisk-v3.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -483,12 +485,14 @@ def run_fastboot_case(
 
 def run_fastboot_disk_case(
     trace: Path, work: Path, version: int, *, low_latency_guards: bool = False,
+    netdisk_v3: bool = False,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
             f"unsupported compact fastboot v{version}")
     case = work / (
         f"fastboot-v{version}-network-dir"
+        + ("-netdisk-v3" if netdisk_v3 else "")
         + ("-low-latency" if low_latency_guards else "")
     )
     case.mkdir()
@@ -498,7 +502,9 @@ def run_fastboot_disk_case(
     tty.setraw(console_slave)
     environment = os.environ.copy()
     if version == 15:
-        resident = RAMBIOS_SYSTEM.read_bytes()[512:]
+        resident = (
+            RAMBIOS_V3_SYSTEM if netdisk_v3 else RAMBIOS_SYSTEM
+        ).read_bytes()[512:]
         conout_vector = 0xC60C - 0xB000
         require(resident[conout_vector] == 0xC3,
                 "V15 RAM BIOS CONOUT vector is not a JMP")
@@ -543,10 +549,13 @@ def run_fastboot_disk_case(
                 {7: FASTBOOT_V7, 8: FASTBOOT_V8, 9: FASTBOOT_V9,
                  10: FASTBOOT_V10, 11: FASTBOOT_V11,
                  12: FASTBOOT_V12, 13: FASTBOOT_V13,
-                 14: FASTBOOT_V14, 15: FASTBOOT_V15_RAMBIOS}[
+                 14: FASTBOOT_V14,
+                 15: FASTBOOT_V15_NETDISK_V3 if netdisk_v3 else
+                 FASTBOOT_V15_RAMBIOS}[
                     version
                 ].read_bytes(),
-                (RAMBIOS_SYSTEM if version == 15 else MODE2_SYSTEM).read_bytes(),
+                (RAMBIOS_V3_SYSTEM if netdisk_v3 else
+                 RAMBIOS_SYSTEM if version == 15 else MODE2_SYSTEM).read_bytes(),
                 stock_timeout=120, reply_timeout=8, verbose=False,
                 configure_rate=False,
                 compact_stock_execute=(version in (
@@ -560,6 +569,7 @@ def run_fastboot_disk_case(
                     serve_disk(
                         master, volume, timeout=180, idle_timeout=None,
                         verbose=False, stats=stats,
+                        protocol_version=3 if netdisk_v3 else 2,
                     )
                 except BaseException as error:
                     errors.append(error)
@@ -591,8 +601,11 @@ def run_fastboot_disk_case(
     require(b"CP/Mish 2.2 Juku" in first and b"DIR" in second,
             f"fastboot v{version} did not reach prompt/DIR: "
             f"{first!r} {second!r}")
-    require(stats.get("reads", 0) >= 34,
+    require(stats.get("read_records", 0) >= 34,
             f"fastboot v{version} DIR issued too few reads: {stats}")
+    if netdisk_v3:
+        require(stats.get("reads", 0) <= 13,
+                f"fastboot NetDisk v3 did not use read-ahead: {stats}")
     require(all(isinstance(error, OSError) for error in errors),
             f"fastboot v{version} disk server failed: {errors!r}")
     state = parse_state((case / "final.state"))
@@ -617,7 +630,10 @@ def run_fastboot_disk_case(
         vram = final_ram[0xD800:0xD800 + 9600]
         require(vram == render_ram_console(first + second),
                 "V15 framebuffer differs from its console transcript")
-        bios_detail = "RAM BIOS 8O1/all-RAM"
+        bios_detail = (
+            "RAM BIOS NetDisk v3/all-RAM" if netdisk_v3 else
+            "RAM BIOS 8O1/all-RAM"
+        )
     else:
         require(state.get("usart_mode") == "5E",
                 f"CP/M BIOS did not restore 19200/8O1 after v{version} handoff")
@@ -1392,18 +1408,30 @@ def run_broken_handoff_case(trace: Path, work: Path) -> None:
 
 def run_ram_output_case(
     trace: Path, work: Path, *, ram_keyboard: bool = False,
+    netdisk_v3: bool = False, netdisk_v3_fault: str | None = None,
+    host_protocol: int | None = None,
 ) -> None:
     """Boot relocated RAM output with RomBios or RAM-owned matrix input."""
-    case = work / ("ram-bios" if ram_keyboard else "ram-output")
+    if host_protocol is None:
+        host_protocol = 3 if netdisk_v3 else 2
+    case = work / (
+        f"ram-bios-v3-fault-{netdisk_v3_fault}" if netdisk_v3_fault else
+        f"ram-bios-v3-fallback-v{host_protocol}" if
+        netdisk_v3 and host_protocol != 3 else
+        "ram-bios-v3" if netdisk_v3 else
+        "ram-bios" if ram_keyboard else "ram-output"
+    )
     case.mkdir()
-    system_source = RAMBIOS_SYSTEM if ram_keyboard else RAMOUT_SYSTEM
+    system_source = RAMBIOS_V3_SYSTEM if netdisk_v3 else \
+        RAMBIOS_SYSTEM if ram_keyboard else RAMOUT_SYSTEM
     container = system_source.read_bytes()
     resident = container[512:] if ram_keyboard else container[512:512 + 7680]
     if ram_keyboard:
+        expected_size = 0x2400 if netdisk_v3 else 0x2080
         require(container[:8] == b"JUKURM1\x1a" and
                 container[8:12] == bytes.fromhex("00 b0 00 c6") and
-                len(resident) == 0x2080,
-                "RAM BIOS must occupy exactly B000h..D07Fh")
+                len(resident) == expected_size,
+                f"RAM BIOS resident size differs from {expected_size}")
     conout_vector = 0xC60C - 0xB000
     require(resident[conout_vector] == 0xC3,
             "RAM output BIOS CONOUT vector is not a JMP")
@@ -1456,9 +1484,29 @@ def run_ram_output_case(
 
             def disk_worker() -> None:
                 try:
+                    def corrupt_first_crc(attempt: int, reply: bytes) -> bytes:
+                        if attempt != 1 or netdisk_v3_fault is None:
+                            return reply
+                        damaged = bytearray(reply)
+                        if netdisk_v3_fault == "crc":
+                            damaged[-1] ^= 1
+                        elif netdisk_v3_fault == "payload":
+                            damaged[12] ^= 1
+                        elif netdisk_v3_fault == "kind":
+                            damaged[8] ^= 0x80
+                        else:
+                            raise ValueError(
+                                f"unknown NetDisk v3 fault "
+                                f"{netdisk_v3_fault!r}"
+                            )
+                        return bytes(damaged)
+
                     serve_disk(
                         master, volume, timeout=180, idle_timeout=None,
-                        verbose=False, stats=stats,
+                        verbose=os.environ.get("JUKU_COSIM_VERBOSE") == "1",
+                        stats=stats,
+                        protocol_version=host_protocol,
+                        reply_filter=corrupt_first_crc,
                     )
                 except BaseException as error:
                     disk_error.append(error)
@@ -1486,9 +1534,23 @@ def run_ram_output_case(
             f"{expected_boot_bytes}")
     require(b"A>" in first and b"DIR" in second,
             f"RAM output console transcript is incomplete: {first + second!r}")
-    require(stats.get("reads", 0) >= 34,
+    require(stats.get("read_records", 0) >= 34,
             f"RAM output DIR issued too few reads: {stats}; "
             f"transcript={first + second!r}")
+    if netdisk_v3 and host_protocol == 3:
+        require(stats.get("reads", 0) <= 13 and
+                stats.get("read_ahead_records", 0) >= 34,
+                f"NetDisk v3 did not amortize DIR reads: {stats}")
+        require(stats.get("v3_prefix", 0) and
+                stats.get("v3_deleted", 0),
+                f"NetDisk v3 bounded encodings were not exercised: {stats}")
+        require(stats.get("retries", 0) == int(netdisk_v3_fault is not None),
+                f"NetDisk v3 CRC retry count differs: {stats}")
+    elif netdisk_v3:
+        require(stats.get("reads", 0) >= 34 and
+                stats.get("read_ahead_records", 0) == 0 and
+                stats.get("retries", 0) == 0,
+                f"NetDisk v3 fallback to v{host_protocol} differs: {stats}")
     require(all(isinstance(error, OSError) for error in disk_error),
             f"RAM output disk server failed: {disk_error!r}")
     log = (case / "stderr.txt").read_text()
@@ -1526,9 +1588,11 @@ def run_ram_output_case(
             f"{[(i, vram[i], expected_vram[i]) for i in mismatches[:12]]}, "
             f"transcript={(first + second)!r}")
     print(
-        f"51K staged {'RAM BIOS' if ram_keyboard else 'RAM output'}: PASS "
+        f"51K staged {'RAM BIOS v3' if netdisk_v3 else 'RAM BIOS' if ram_keyboard else 'RAM output'}: PASS "
         f"({'polled RAM' if ram_keyboard else 'RomBios'} keyboard DIR; "
+        f"host=v{host_protocol}; "
         f"reads={stats.get('reads', 0)}; "
+        f"retries={stats.get('retries', 0)}; "
         f"VRAM={digest[:12]})"
     )
 
@@ -1888,16 +1952,21 @@ def main() -> None:
     parser.add_argument("--netdisk-benchmark-only", action="store_true")
     parser.add_argument("--ram-output-only", action="store_true")
     parser.add_argument("--ram-bios-only", action="store_true")
+    parser.add_argument("--netdisk-v3-only", action="store_true")
     parser.add_argument("--game-disk", type=Path,
                         help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
     required_images = (
-        ((RAMBIOS_SYSTEM if args.ram_bios_only else RAMOUT_SYSTEM),
-         NETDISK_V2_FLAT)
-        if args.ram_output_only or args.ram_bios_only else (
+        ((RAMBIOS_V3_SYSTEM if args.netdisk_v3_only else
+          RAMBIOS_SYSTEM if args.ram_bios_only else RAMOUT_SYSTEM),
+         NETDISK_V2_FLAT,
+         *((FASTBOOT_V15_NETDISK_V3,) if args.netdisk_v3_only else ()))
+        if args.ram_output_only or args.ram_bios_only or
+        args.netdisk_v3_only else (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
             MODE2_SYSTEM, BROKEN_MODE2_SYSTEM, MODE2_FLAT,
             NETDISK_V2_SYSTEM, RAMOUT_SYSTEM, RAMBIOS_SYSTEM,
+            RAMBIOS_V3_SYSTEM,
             NETDISK_V2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
@@ -1911,6 +1980,7 @@ def main() -> None:
             FASTBOOT_V14,
             FASTBOOT_V14_NETDISK_V2,
             FASTBOOT_V15_RAMBIOS,
+            FASTBOOT_V15_NETDISK_V3,
         )
     )
     require(
@@ -2072,6 +2142,33 @@ def main() -> None:
         if args.ram_bios_only:
             run_ram_output_case(trace, work, ram_keyboard=True)
             return
+        if args.netdisk_v3_only:
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+            )
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+                netdisk_v3_fault="crc",
+            )
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+                netdisk_v3_fault="payload",
+            )
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+                netdisk_v3_fault="kind",
+            )
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+                host_protocol=2,
+            )
+            run_ram_output_case(
+                trace, work, ram_keyboard=True, netdisk_v3=True,
+                host_protocol=1,
+            )
+            run_fastboot_disk_case(trace, work, 15, netdisk_v3=True)
+            print("JUKU-NETDISK-V3-COSIM-CHECK: PASS")
+            return
         if args.baudtest_only:
             run_baudtest_case(
                 trace, work, test_baud=9600,
@@ -2121,6 +2218,30 @@ def main() -> None:
         run_broken_handoff_case(trace, work)
         run_ram_output_case(trace, work)
         run_ram_output_case(trace, work, ram_keyboard=True)
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+        )
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+            netdisk_v3_fault="crc",
+        )
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+            netdisk_v3_fault="payload",
+        )
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+            netdisk_v3_fault="kind",
+        )
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+            host_protocol=2,
+        )
+        run_ram_output_case(
+            trace, work, ram_keyboard=True, netdisk_v3=True,
+            host_protocol=1,
+        )
+        run_fastboot_disk_case(trace, work, 15, netdisk_v3=True)
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)

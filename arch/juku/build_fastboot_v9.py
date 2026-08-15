@@ -14,6 +14,7 @@ CORE_SIZE = 128
 SYSTEM_PREFIX = 512
 SYSTEM_SIZE = 6656
 COMPRESSED_LIMIT = 0x1800
+V15_COMPRESSED_LIMIT = 0x2000
 VERSIONS = {
     b"JFV9": (9, b"Z9"),
     b"JF10": (10, b"ZA"),
@@ -93,10 +94,12 @@ def main() -> int:
         )
         compressed = compressed_path.read_bytes()
 
-    if len(compressed) < 0x100 or len(compressed) >= COMPRESSED_LIMIT:
+    compressed_limit = V15_COMPRESSED_LIMIT \
+        if version == 15 else COMPRESSED_LIMIT
+    if len(compressed) < 0x100 or len(compressed) >= compressed_limit:
         raise ValueError(
             f"fastboot v{version} compressed system is {len(compressed)} bytes, "
-            f"required range 256..{COMPRESSED_LIMIT - 1}"
+            f"required range 256..{compressed_limit - 1}"
         )
     compressed_crc = crc16_ibm(compressed)
     length_sentinel = BUFFERED_LENGTH_SENTINEL \

@@ -15,6 +15,11 @@ label   BBASE
         extrn   RKSTAT
         extrn   RKIN
 .endif
+.ifdef NETWORKV3
+        extrn   N3READ
+        extrn   N3INV
+        extrn   N3ENA
+.endif
 
 ; Public CP/M 2.2 BIOS jump table.
         jmp     BOOT
@@ -182,10 +187,17 @@ BOOT:
 
 VERMSG:
 .ifdef RAMKEYBOARD
+.ifdef NETWORKV3
+        db      'CP/Mish 2.2 Juku RAM BIOS',13,10
+        db      'NetDisk v3, read-ahead',13,10
+        db      'GPT-5.6 Sol, Arvutimuuseum',13,10
+        db      'Danila Sukharev',13,10,0
+.else
         db      'CP/Mish 2.2 Juku RAM BIOS',13,10
         db      'NetDisk v2, polled console',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
         db      'Danila Sukharev',13,10,0
+.endif
 .else
 .ifdef RAMCONSOLE
         db      'CP/Mish 2.2 Juku RAM output',13,10
@@ -370,6 +382,10 @@ SETDMA:
         ret
 
 READ:
+.ifdef NETWORKV3
+        call    N3READ
+        ret
+.else
 .ifdef NETWORKV2
         lda     NETV2
         ora     a
@@ -387,12 +403,18 @@ NETV2SINGLE:
         jmp     RWDISK
 .endif
 .endif
+.endif
 
 WRITE:
+.ifdef NETWORKV3
+        call    N3INV
+.endif
         mvi     a,DKWR
 
 .ifdef NETWORK
 NETRWDISK:
+        public  NRWDISK
+NRWDISK:
         sta     REQUEST
         lda     SEQUENCE
         inr     a
@@ -592,6 +614,26 @@ NETREADY:
         call    NETRX
         cpi     'R'
         jnz     NETREADY
+.ifdef NETWORKV3
+        ; V3 advertises N3. N2 selects the compact single-record fallback;
+        ; a repeated legacy NR leaves mode 1. The helper owns all three paths.
+        mvi     c,1
+        call    NETRX
+        cpi     'N'
+        jnz     NETV3DONE
+        call    NETRX
+        cpi     '3'
+        jz      NETV3MARK
+        cpi     '2'
+        jnz     NETV3DONE
+        mvi     c,2
+        jmp     NETV3DONE
+NETV3MARK:
+        mvi     c,3
+NETV3DONE:
+        mov     a,c
+        call    N3ENA
+.else
 .ifdef NETWORKV2
         ; A v2 host appends N2 to NR.  With a legacy host these reads consume
         ; its next repeated NR marker and fall back after about 20 ms.
@@ -604,6 +646,7 @@ NETREADY:
         mvi     a,0ffh
         sta     NETV2
 NETCAPDONE:
+.endif
 .endif
 .ifndef BROKEN_NET_HANDOFF
         ; NET_USART_INIT registered handlers 2, 3 and 9 through RomBios FF89.

@@ -54,6 +54,15 @@ zmac(
     src="./ram-keyboard.asm",
 )
 zmac(
+    name="bios-net-v3-rambio",
+    src="./bios-net-v3-rambio.asm",
+    deps=[
+        "include/cpm.lib", "./bios.asm", "./ram-console.asm",
+        "./ram-console-font.asm",
+    ],
+)
+zmac(name="netdisk-v3", src="./netdisk-v3.asm")
+zmac(
     name="diag",
     src="./diag.asm",
     deps=["third_party/juku-common/diag/memory.asm"],
@@ -412,6 +421,17 @@ ld80(
         0xCF00: [".+ram-keyboard"],
     },
 )
+ld80(
+    name="memory-net-v3-rambio",
+    address=0xB000,
+    objs={
+        0xB000: ["third_party/dr/ccp+ccp-juku"],
+        0xB800: ["third_party/dr/bdos"],
+        0xC600: [".+bios-net-v3-rambio"],
+        0xCF00: [".+ram-keyboard"],
+        0xD210: [".+netdisk-v3"],
+    },
+)
 
 # Juku's preserved SYSGEN files reserve 512 bytes before the 52 resident
 # 128-byte records. Keep the complete 10 KiB boot-track region so the result
@@ -478,6 +498,16 @@ simplerule(
         "python3 arch/juku/mksystemram.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETV2RAMBIOSYSTEM",
+)
+simplerule(
+    name="systemfile-net-v3-rambio",
+    ins=[".+memory-net-v3-rambio"],
+    outs=["=juku-net-v3-rambio-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystemram.py --max-size 0x2400 "
+        "{ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETV3RAMBIOSYSTEM",
 )
 simplerule(
     name="fastboot-v6-bin",
@@ -643,6 +673,21 @@ simplerule(
         "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
     ],
     label="JUKUFASTBOOTV15RAMBIO",
+)
+simplerule(
+    name="fastboot-v15-netdisk-v3-bin",
+    ins=[
+        ".+fastboot-v15-core",
+        ".+fastboot-v15-extension",
+        ".+systemfile-net-v3-rambio",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v15-netdisk-v3.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV15NETDISKV3",
 )
 simplerule(
     name="systemfile-net-smoke",
