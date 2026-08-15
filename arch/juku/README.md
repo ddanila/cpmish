@@ -242,7 +242,9 @@ make juku-system.bin juku.img juku-net-system.bin \
     juku-net-mode2-soak-system.bin juku-net-mode2-soak.img \
     juku-fastboot-stage1.bin juku-fastboot-v2.bin juku-fastboot-v3.bin \
     juku-fastboot-v4.bin juku-fastboot-v5.bin juku-fastboot-v6.bin \
-    juku-fastboot-v7.bin juku-fastboot-v8.bin juku-fastboot-v9.bin
+    juku-fastboot-v7.bin juku-fastboot-v8.bin juku-fastboot-v9.bin \
+    juku-fastboot-v10.bin juku-fastboot-v11.bin juku-fastboot-v12.bin \
+    juku-fastboot-v13.bin juku-fastboot-v14.bin
 make juku-cosim-check
 make juku-net-cosim-check
 make juku-fastboot-cosim-check
@@ -383,11 +385,12 @@ The project therefore freezes 19,200 mode-2/count-4 x16 as the optimization
 clock. Its approximately 307.7 kHz D11 input is already near the documented
 310 kHz x16 ceiling, the in-spec x1 alternative failed physically, and a
 38,400/count-2 x16 experiment would be roughly two times over specification.
-Further speed work stays at 19,200: v6 remains the fastest *timed* physical
-path, v5 is its uncompressed control, v7 is the physically qualified
-fixed-metadata path, and v8 is the separately named simulation-qualified
-receive/decode-overlap candidate. V4 remains diagnostic evidence, not a
-candidate default.
+Further speed work stays at 19,200. V12 later measured 5.739 seconds on three
+clean physical repeats. V13's acknowledged overlapping path booted five of
+five times but retried the first stream in four. Three v14 runs were clean at
+6.069-6.115 seconds with zero retries, making v14 the production fastboot
+baseline. V5 remains the uncompressed control and V4 remains diagnostic
+evidence, not a candidate default.
 
 `juku-fastboot-v5.bin` is the physically proven **19,200/8N1 uncompressed
 baseline**. It keeps
@@ -448,9 +451,9 @@ The smaller extension/stream plus a safe 20 ms v7 handoff guard predict roughly
 On 2026-08-15 physical CS00015 then passed the complete v7 path: stock-ROM
 bootstrap, 19,200 handoff, visible CP/M prompt, and network `DIR`. This
 qualifies the implementation and its short handoff guard. The exact first-disk
-timing was not retained, so v6 remains the fastest *timed* baseline and a
-separate logged v7 repeat is still needed before replacing its 6.214-second
-record. Run v7 by substituting `juku-fastboot-v7.bin` in `--fast-stage1`.
+timing was not retained. At that stage v6 therefore remained the fastest timed
+baseline; later v12 repeats supersede that timing record. Run v7 by substituting
+`juku-fastboot-v7.bin` in `--fast-stage1`.
 
 `juku-fastboot-v8.bin` is the separate **interrupt-fed overlapping ZX0 desk
 candidate**. It retains v7's one stock record, fixed 4826-byte payload,
@@ -529,13 +532,75 @@ use a newly named artifact and repeat the physical test.
 
 The separately selected host policy `--fast-low-latency-guards` requires
 `--compact-stock-execute` and leaves v9 byte-identical. It uses `tcdrain()`
-instead of a blind 50 ms stock-output wait, reduces the two 20 ms turnaround
-guards to 5 ms, and reduces the post-success guard to 10 ms. The last value
-still covers the three success frames plus target drain. Three repeated clean
-runs, injected corruption/loss, and full network `DIR` pass in cosim. The fixed
-wait reduction is 40 ms; draining compact execute can save up to another 26 ms
-against the old blind wait. The resulting **about 5.45 s** projection remains
-a physical timing candidate, not a measured claim.
+instead of a blind 50 ms stock-output wait and reduces the post-success guard
+to 10 ms, while retaining the 20 ms extension and stream guards. The success
+guard still covers the three success frames plus target drain. Three repeated
+clean runs, injected corruption/loss, and full network `DIR` pass in cosim.
+The fixed wait reduction is 10 ms; draining compact execute can save up to
+another 26 ms against the old blind wait. The resulting **about 5.48 s**
+projection remains a physical timing candidate, not a measured claim.
+
+A physical CS00015 threshold trial with a 5 ms extension guard recovered but
+was slower: the extension and stream each retried once, the prompt and `DIR`
+still worked, and the first disk request arrived at 10.167 s. The production
+default therefore remains 20 ms. Host-side `--fast-extension-guard-ms` exists
+only for explicitly named follow-up experiments.
+
+V10-v14 preserve the earlier artifacts and replace timing assumptions with
+explicit state transitions. V10's 608-byte extension bounds every ZX0 input read by the
+interrupt-fed producer pointer, eliminating the fixed-lead decoder race. V11
+adds a raw `C5` acknowledgement after the one-record core receives `A5 3A`.
+Repeated CS00015 tests showed why acknowledgement must gate the body: two of
+four v11 runs missed the first ACK, but the host sent the extension anyway and
+then retried both extension and stream.
+
+V12 uses an overlap-safe header parser and repeats only `00 A5 3A` until `C5`;
+no extension body is sent beforehand. Four CS00015 runs had zero extension
+retries. The first three reached the first disk request in 5.739, 5.740, and
+5.739 seconds. The fourth required two probes and recovered exactly as
+designed, then exposed the independent fixed 2 ms `JZ` payload-arm race and
+retried that stream once (8.307 seconds total).
+
+V13 makes `JZ` overlap-safe too. After length, CRC, receive-failure flag, input
+pointer, saved stack, and IRQ state are initialized, the extension emits raw
+`C6`; compressed bytes are withheld until that ACK. The 5582-byte artifact is
+125/128 bytes of core, 620 bytes of exact extension, an eight-byte `ZD`
+descriptor, and the unchanged 4826-byte payload. SHA-256 is
+`7e4e5fcf821c6f16fd41349060650ad20361af4b8f1c77498fbf88488b6c38f9`.
+Cosim deliberately truncates the first extension header to `A5` and the first
+stream header to `J`, then proves resynchronization, corruption/loss recovery,
+3.4 MHz operation, byte-exact RAM, prompt, and network `DIR`.
+
+Five physical v13 boots all succeeded, but four first streams failed CRC and
+passed only on complete retransmission. Those four runs also needed the second
+extension-header probe; the sole one-probe run was stream-clean. The ideal
+USART/PIC model does not fail spontaneously under normal or doubled CPU timing.
+A one-shot fault that delays one RxRDY interrupt for over two character times
+does reproduce one v13 overrun/retry and recovery. V13 is retained as important
+evidence, not promoted as the default.
+
+`juku-fastboot-v14.bin` is the **fully buffered deterministic production
+baseline**.
+It keeps the overlap-safe `A5 3A`/`C5` and `JZ`/`C6` handshakes but receives all
+4826 compressed bytes at 4000h and verifies CRC16/IBM before starting ZX0.
+This removes the interrupt-fed producer/decoder race from the bulk data path.
+The artifact is 5229 bytes: 125/128 bytes of core, 267 exact extension bytes,
+an eight-byte `ZE` descriptor, and the unchanged payload. SHA-256 is
+`83fd401af727a3c8c85fbe94d3d5458c71675efd974a0a8734f99987b420980c`.
+Clean, partial-header, injected corruption/loss, lost-reply, 3.4 MHz,
+byte-exact, prompt, and network `DIR` cases pass. Under the same one-shot RxRDY
+delay that forces v13 to retry, v14 remains retry-free. Three physical CS00015
+runs reached the first disk request at 6.115, 6.100, and 6.069 seconds with no
+extension or stream retry. The first two needed a second extension-header probe
+and recovered cleanly. This qualifies v14 and freezes speed optimization here:
+future changes need a functional, observability, or demonstrated reliability
+benefit rather than a marginal best-case timing gain.
+
+Stock frame tracing also rejects eager post-ACK sending. A normal one-record
+request contains 36 client frames after the request, including 26 scans of
+other stations. Sending the next fragment before the required directed poll
+made the ROM discard/reject frames and increased host output from 14 to 44-58
+frames. The captured Janet turn discipline remains intact.
 
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
@@ -957,9 +1022,9 @@ ZX0 is therefore the fastest measured and layout-valid choice, not merely the
 smallest-stream choice. V6 implements it and measured 6.214 seconds to the
 first A: request on CS00015, with the visible prompt and `DIR` proven. This
 beats v5 by 0.337 seconds and v3 by 0.701 seconds. V7 retains ZX0 while removing
-one extension record and is physically qualified; v6 remains the fastest
-exactly timed default until the v7 timing repeat. Prior variants remain
-unchanged.
+one extension record and is physically qualified. Later v12 timing, v13
+explicit handshakes, and v14's deterministic buffered control build on this
+same ZX0 choice; prior variants remain unchanged.
 
 V3 is now implemented: its assembled core is 117/128 bytes and extension is
 172/256 bytes. Clean cosim loads only one stock data record, verifies

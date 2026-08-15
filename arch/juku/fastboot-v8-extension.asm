@@ -21,8 +21,33 @@ ENTRY           equ     0ca00h
 COMPRESSED      equ     04000h
 RING            equ     00700h
 .ifdef FASTBOOT_POLL_MARKERS
+.ifdef FASTBOOT_V13
+PROTOCOL_VERSION equ    13
+CORE_RX          equ    0173h
+.else
+.ifdef FASTBOOT_V12
+PROTOCOL_VERSION equ    12
+CORE_RX          equ    0173h
+.else
+.ifdef FASTBOOT_V11
+PROTOCOL_VERSION equ    11
+CORE_RX          equ    0172h
+.else
+.ifdef FASTBOOT_V10
+PROTOCOL_VERSION equ    10
+.else
 PROTOCOL_VERSION equ    9
-CORE_RX         equ     016eh
+.endif
+.endif
+.endif
+.endif
+.ifndef FASTBOOT_V11
+.ifndef FASTBOOT_V12
+.ifndef FASTBOOT_V13
+CORE_RX          equ    016eh
+.endif
+.endif
+.endif
 .else
 PROTOCOL_VERSION equ    8
 .endif
@@ -73,13 +98,22 @@ find_j:
 .endif
         cpi     'J'
         jnz     find_j
+find_z:
 .ifdef FASTBOOT_POLL_MARKERS
         call    CORE_RX
 .else
         call    marker_get
 .endif
         cpi     'Z'
+.ifdef FASTBOOT_STREAM_ACK
+        jz      stream_header
+        cpi     'J'                    ; preserve an overlapping first byte
+        jz      find_z
+        jmp     find_j
+stream_header:
+.else
         jnz     find_j
+.endif
 
         ; The builder patches the immutable compressed length.  Arm CRC and
         ; byte accounting before the first payload character can arrive.
@@ -109,6 +143,10 @@ find_j:
         lxi     h,0
         dad     sp
         shld    saved_sp
+.ifdef FASTBOOT_STREAM_ACK
+        mvi     a,0c6h                 ; payload state is armed and ready
+        out     USARTDATA
+.endif
         ei
 
 wait_lead:
@@ -236,6 +274,22 @@ marker_have:
 ; Return one compressed byte in A and advance DE. The fixed 256-byte lead,
 ; exact final DE, CRC, and clean/fault cosim keep this native fast path safe.
 stream_get:
+.ifdef FASTBOOT_WAIT_INPUT
+        mov     a,e
+        ora     a
+        jnz     stream_get_have
+stream_get_wait:
+        lda     input_write+1
+        cmp     d
+        jnz     stream_get_have
+        lda     input_left
+        ora     a
+        jnz     stream_get_wait
+        lda     input_left+1
+        ora     a
+        jnz     stream_get_wait
+stream_get_have:
+.endif
         ldax    d
         inx     d
         ret
@@ -396,6 +450,22 @@ dzx0_stream_loop:
         mov     a,b
         cpi     DESTINATION_END/256
         jnc     abort_stream
+.ifdef FASTBOOT_WAIT_INPUT
+        mov     a,e
+        ora     a
+        jnz     dzx0_stream_have
+dzx0_stream_wait:
+        lda     input_write+1
+        cmp     d
+        jnz     dzx0_stream_have
+        lda     input_left
+        ora     a
+        jnz     dzx0_stream_wait
+        lda     input_left+1
+        ora     a
+        jnz     dzx0_stream_wait
+dzx0_stream_have:
+.endif
         ldax    d
         stax    b
         inx     d

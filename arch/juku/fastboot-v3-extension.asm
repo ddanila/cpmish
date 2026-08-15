@@ -1,13 +1,15 @@
-; Strong-CRC streaming extension for Fast stages v3, v5, v6, and v7.
+; Strong-CRC streaming extension for Fast stages v3, v5-v7, and v14.
 ; Copyright (c) 2026 Danila Sukharev
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
 ; The one-record core installs this at 0300h after selecting 19200. V3/v5
-; receive the fixed 6656-byte resident system directly; v6/v7 authenticate and
-; expand one length-bounded ZX0 stream. V7 embeds its immutable length and CRC
-; in the authenticated extension. A bad stream restarts and is retransmitted
-; in full. The compact byte-wise CRC transform is adapted from Aram Perez,
-; IEEE Micro, June 1983, pp. 41-50.
+; receive the fixed 6656-byte resident system directly; v6/v7/v14 authenticate
+; and expand one length-bounded ZX0 stream. V7 embeds its immutable length and
+; CRC in the authenticated extension. V14 combines that deterministic,
+; receive-before-decode path with overlap-safe marker parsing and an explicit
+; payload-ready acknowledgement. A bad stream restarts and is retransmitted in
+; full. The compact byte-wise CRC transform is adapted from Aram Perez, IEEE
+; Micro, June 1983, pp. 41-50.
 
 USARTDATA       equ     008h
 USARTCTL        equ     009h
@@ -19,8 +21,13 @@ SYSTEM_SIZE     equ     01a00h
 COMPRESSED      equ     04000h
 COMPRESSED_LIMIT equ    01800h
 .ifdef FASTBOOT_TIGHT
+.ifdef FASTBOOT_V14
+PROTOCOL_VERSION equ    14
+rx              equ     0173h
+.else
 PROTOCOL_VERSION equ    7
 rx              equ     016eh
+.endif
 .else
 PROTOCOL_VERSION equ    6
 .endif
@@ -46,9 +53,18 @@ find_j:
         call    rx
         cpi     'J'
         jnz     find_j
+find_z:
         call    rx
         cpi     'Z'
+.ifdef FASTBOOT_STREAM_ACK
+        jz      stream_header
+        cpi     'J'                    ; preserve an overlapping first byte
+        jz      find_z
+        jmp     find_j
+stream_header:
+.else
         jnz     find_j
+.endif
 
 .ifdef FASTBOOT_TIGHT
         ; V7's authenticated extension embeds the exact payload length and
@@ -56,6 +72,12 @@ find_j:
         ; parser while retaining retry-safe JZ resynchronisation.
         ; The builder patches this immediate after compression.
         lxi     b,0a55ah
+.ifdef FASTBOOT_STREAM_ACK
+        ; Confirm only after the fixed count is live. The host sends no body
+        ; byte before this acknowledgement, so reception cannot race setup.
+        mvi     a,0c6h
+        call    tx
+.endif
 .else
         call    rx
         mov     b,a
@@ -337,9 +359,15 @@ success_frame:
 extension_end:
 .ifdef FASTBOOT_ZX0
 .ifdef FASTBOOT_TIGHT
+.ifdef FASTBOOT_V14
+        .if     extension_end-0300h > 640
+        .error  "Fastboot v14 extension exceeds five records"
+        .endif
+.else
         .if     extension_end-0300h > 256
         .error  "Fastboot v7 extension exceeds two records"
         .endif
+.endif
 .else
         .if     extension_end-0300h > 384
         .error  "Fastboot v6 extension exceeds three records"

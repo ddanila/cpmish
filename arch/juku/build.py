@@ -148,6 +148,7 @@ zmac(
     src="./fastboot-v3-core.asm",
     defines=[
         "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V9",
+        "FASTBOOT_EXACT",
     ],
     relocatable=False,
 )
@@ -155,6 +156,87 @@ zmac(
     name="fastboot-v9-extension",
     src="./fastboot-v8-extension.asm",
     defines=["FASTBOOT_POLL_MARKERS"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v10-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V10",
+        "FASTBOOT_EXACT",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v10-extension",
+    src="./fastboot-v8-extension.asm",
+    defines=["FASTBOOT_POLL_MARKERS", "FASTBOOT_V10", "FASTBOOT_WAIT_INPUT"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v11-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V11",
+        "FASTBOOT_EXACT", "FASTBOOT_EXT_ACK",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v11-extension",
+    src="./fastboot-v8-extension.asm",
+    defines=["FASTBOOT_POLL_MARKERS", "FASTBOOT_V11", "FASTBOOT_WAIT_INPUT"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v12-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V12",
+        "FASTBOOT_EXACT", "FASTBOOT_EXT_ACK", "FASTBOOT_PROBE_SYNC",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v12-extension",
+    src="./fastboot-v8-extension.asm",
+    defines=["FASTBOOT_POLL_MARKERS", "FASTBOOT_V12", "FASTBOOT_WAIT_INPUT"],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v13-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V13",
+        "FASTBOOT_EXACT", "FASTBOOT_EXT_ACK", "FASTBOOT_PROBE_SYNC",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v13-extension",
+    src="./fastboot-v8-extension.asm",
+    defines=[
+        "FASTBOOT_POLL_MARKERS", "FASTBOOT_V13", "FASTBOOT_WAIT_INPUT",
+        "FASTBOOT_STREAM_ACK",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v14-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V14",
+        "FASTBOOT_EXACT", "FASTBOOT_EXT_ACK", "FASTBOOT_PROBE_SYNC",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v14-extension",
+    src="./fastboot-v3-extension.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_TIGHT", "FASTBOOT_V14",
+        "FASTBOOT_STREAM_ACK",
+    ],
     relocatable=False,
 )
 zmac(
@@ -330,6 +412,81 @@ simplerule(
         "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
     ],
     label="JUKUFASTBOOTV9",
+)
+simplerule(
+    name="fastboot-v10-bin",
+    ins=[
+        ".+fastboot-v10-core",
+        ".+fastboot-v10-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v10.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV10",
+)
+simplerule(
+    name="fastboot-v11-bin",
+    ins=[
+        ".+fastboot-v11-core",
+        ".+fastboot-v11-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v11.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV11",
+)
+simplerule(
+    name="fastboot-v12-bin",
+    ins=[
+        ".+fastboot-v12-core",
+        ".+fastboot-v12-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v12.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV12",
+)
+simplerule(
+    name="fastboot-v13-bin",
+    ins=[
+        ".+fastboot-v13-core",
+        ".+fastboot-v13-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v13.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV13",
+)
+simplerule(
+    name="fastboot-v14-bin",
+    ins=[
+        ".+fastboot-v14-core",
+        ".+fastboot-v14-extension",
+        ".+systemfile-net-mode2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v14.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV14",
 )
 simplerule(
     name="systemfile-net-smoke",

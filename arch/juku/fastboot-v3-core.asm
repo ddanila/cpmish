@@ -36,13 +36,33 @@ EXTENSION_SIZE  equ     0100h
         org     0100h
 
         ; Self-describing bundle metadata.  Host tooling transfers one core
-        ; record and finds the padded or exact extension in the metadata.
+; record and finds the padded or exact extension in the metadata.
         jmp     start
 .ifdef FASTBOOT_STREAM
+.ifdef FASTBOOT_V14
+        db      'J','F','1','4'
+.else
+.ifdef FASTBOOT_V13
+        db      'J','F','1','3'
+.else
+.ifdef FASTBOOT_V12
+        db      'J','F','1','2'
+.else
+.ifdef FASTBOOT_V11
+        db      'J','F','1','1'
+.else
+.ifdef FASTBOOT_V10
+        db      'J','F','1','0'
+.else
 .ifdef FASTBOOT_V9
         db      'J','F','V','9'
 .else
         db      'J','F','V','8'
+.endif
+.endif
+.endif
+.endif
+.endif
 .endif
 .else
 .ifdef FASTBOOT_TIGHT
@@ -60,7 +80,7 @@ EXTENSION_SIZE  equ     0100h
 .endif
 .endif
         db      1                       ; core records
-.ifdef FASTBOOT_V9
+.ifdef FASTBOOT_EXACT
         db      0                       ; exact byte count follows
         dw      0a55ah                  ; builder patches extension bytes
 .else
@@ -70,9 +90,11 @@ EXTENSION_SIZE  equ     0100h
 start:
         di
         lxi     sp,0b3f0h
+.ifndef FASTBOOT_PROBE_SYNC
         mvi     a,0ffh
         out     PICMASK
         sta     PICSHADOW
+.endif
 
         mvi     a,015h                  ; D57 ch0 mode 2, LSB, BCD
         out     PITCTL
@@ -94,7 +116,9 @@ start:
         out     USARTCTL
         mvi     a,035h
         out     USARTCTL
+.ifndef FASTBOOT_PROBE_SYNC
         in      USARTDATA
+.endif
 
 session:
         ; Extension packet: A5h, 3Ah, 256 bytes, Fletcher sum1, sum2.
@@ -102,13 +126,26 @@ find_first:
         call    rx
         cpi     0a5h
         jnz     find_first
+find_second:
         call    rx
         cpi     03ah
+.ifdef FASTBOOT_PROBE_SYNC
+        jz      header_found
+        cpi     0a5h                   ; preserve an overlapping first byte
+        jz      find_second
+        jmp     find_first
+header_found:
+.else
         jnz     find_first
+.endif
+.ifdef FASTBOOT_EXT_ACK
+        mvi     a,0c5h                   ; extension-header acknowledgement
+        out     USARTDATA
+.endif
 
         lxi     h,EXTENSION
 .ifdef FASTBOOT_ZX0
-.ifdef FASTBOOT_V9
+.ifdef FASTBOOT_EXACT
         lxi     b,0a55ah                 ; builder patches exact byte count
 .else
         lxi     b,EXTENSION_SIZE

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the exact-length interrupt-fed ZX0 Fast stage v9 bundle."""
+"""Build an exact-length ZX0 Fast stage v9 and later bundle."""
 
 from __future__ import annotations
 
@@ -14,12 +14,21 @@ CORE_SIZE = 128
 SYSTEM_PREFIX = 512
 SYSTEM_SIZE = 6656
 COMPRESSED_LIMIT = 0x1800
-MAGIC = b"JFV9"
-PAYLOAD_MAGIC = b"Z9"
+VERSIONS = {
+    b"JFV9": (9, b"Z9"),
+    b"JF10": (10, b"ZA"),
+    b"JF11": (11, b"ZB"),
+    b"JF12": (12, b"ZC"),
+    b"JF13": (13, b"ZD"),
+    b"JF14": (14, b"ZE"),
+}
 EXTENSION_LENGTH_SENTINEL = bytes.fromhex("01 5A A5")
 LENGTH_SENTINEL = bytes.fromhex("21 5A A5 22")
 CRC_HIGH_SENTINEL = bytes.fromhex("FE A5 C2")
 CRC_LOW_SENTINEL = bytes.fromhex("00 FE 5A C2")
+BUFFERED_LENGTH_SENTINEL = bytes.fromhex("01 5A A5")
+BUFFERED_CRC_HIGH_SENTINEL = bytes.fromhex("3E A5 BA")
+BUFFERED_CRC_LOW_SENTINEL = bytes.fromhex("3E 5A BB")
 
 
 def main() -> int:
@@ -34,19 +43,23 @@ def main() -> int:
     core = bytearray(args.core.read_bytes())
     extension = bytearray(args.extension.read_bytes())
     system_image = args.system.read_bytes()
-    if core[3:7] != MAGIC or core[7:11] != b"\x01\x00\x5a\xa5":
-        raise ValueError("fastboot v9 core metadata is missing or malformed")
+    magic = bytes(core[3:7])
+    if magic not in VERSIONS or core[7:11] != b"\x01\x00\x5a\xa5":
+        raise ValueError("exact fastboot core metadata is missing or malformed")
+    version, payload_magic = VERSIONS[magic]
     if len(core) > CORE_SIZE:
         raise ValueError(
-            f"fastboot v9 core is {len(core)} bytes, limit {CORE_SIZE}"
+            f"fastboot v{version} core is {len(core)} bytes, limit {CORE_SIZE}"
         )
     if not 256 <= len(extension) <= 0xFFFF:
         raise ValueError(
-            f"fastboot v9 extension has invalid size {len(extension)}"
+            f"fastboot v{version} extension has invalid size {len(extension)}"
         )
     if len(system_image) != 10240 or \
             system_image[:SYSTEM_PREFIX] != bytes((0xE5,)) * SYSTEM_PREFIX:
-        raise ValueError("fastboot v9 requires a 10 KiB JUKUSYS system image")
+        raise ValueError(
+            f"fastboot v{version} requires a 10 KiB JUKUSYS system image"
+        )
     system = system_image[SYSTEM_PREFIX:SYSTEM_PREFIX + SYSTEM_SIZE]
 
     extension_size = len(extension)
@@ -56,7 +69,9 @@ def main() -> int:
         extension_size.to_bytes(2, "little"), "extension length",
     )
 
-    with tempfile.TemporaryDirectory(prefix="juku-fastboot-v9-") as directory:
+    with tempfile.TemporaryDirectory(
+        prefix=f"juku-fastboot-v{version}-"
+    ) as directory:
         raw_path = Path(directory) / "system.bin"
         compressed_path = Path(directory) / "system.zx0"
         raw_path.write_bytes(system)
@@ -69,25 +84,31 @@ def main() -> int:
 
     if len(compressed) < 0x100 or len(compressed) >= COMPRESSED_LIMIT:
         raise ValueError(
-            f"fastboot v9 compressed system is {len(compressed)} bytes, "
+            f"fastboot v{version} compressed system is {len(compressed)} bytes, "
             f"required range 256..{COMPRESSED_LIMIT - 1}"
         )
     compressed_crc = crc16_ibm(compressed)
+    length_sentinel = BUFFERED_LENGTH_SENTINEL \
+        if version == 14 else LENGTH_SENTINEL
+    crc_high_sentinel = BUFFERED_CRC_HIGH_SENTINEL \
+        if version == 14 else CRC_HIGH_SENTINEL
+    crc_low_sentinel = BUFFERED_CRC_LOW_SENTINEL \
+        if version == 14 else CRC_LOW_SENTINEL
     patch_unique(
-        extension, LENGTH_SENTINEL, 1,
+        extension, length_sentinel, 1,
         len(compressed).to_bytes(2, "little"), "length",
     )
     patch_unique(
-        extension, CRC_HIGH_SENTINEL, 1,
+        extension, crc_high_sentinel, 1,
         bytes((compressed_crc >> 8,)), "CRC high",
     )
     patch_unique(
-        extension, CRC_LOW_SENTINEL, 2,
+        extension, crc_low_sentinel, 1 if version == 14 else 2,
         bytes((compressed_crc & 0xFF,)), "CRC low",
     )
     system_crc = crc16_ibm(system)
     descriptor = (
-        PAYLOAD_MAGIC
+        payload_magic
         + system_crc.to_bytes(2, "big")
         + len(compressed).to_bytes(2, "big")
         + compressed_crc.to_bytes(2, "big")
@@ -96,7 +117,7 @@ def main() -> int:
         descriptor + compressed
     args.output.write_bytes(bundle)
     print(
-        f"Fastboot v9 bundle: core={len(core)}/{CORE_SIZE}, "
+        f"Fastboot v{version} bundle: core={len(core)}/{CORE_SIZE}, "
         f"extension={len(extension)} exact bytes, "
         f"system={SYSTEM_SIZE}->{len(compressed)}, "
         f"compressed CRC16/IBM={compressed_crc:04X}, "
