@@ -44,7 +44,9 @@ juku-fastboot-cosim-check: juku-fastboot-stage1.bin juku-fastboot-v2.bin \
 
 .PHONY: juku-fastboot-v15-cosim-check
 juku-fastboot-v15-cosim-check: juku-fastboot-v15-rambio.bin \
-		juku-net-v2-rambio-system.bin juku-net-v2.img
+		juku-fastboot-v15-netdisk-v3.bin \
+		juku-net-v2-rambio-system.bin juku-net-v3-rambio-system.bin \
+		juku-net-v2.img
 	python3 arch/juku/net_cosim_check.py --fastboot-v15-only
 
 .PHONY: juku-netdisk-benchmark

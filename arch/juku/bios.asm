@@ -288,6 +288,9 @@ FUNCTION:
 
 CONST:
 .ifdef RAMKEYBOARD
+.ifdef RAMCONSOLE
+        call    RAMCONTICK
+.endif
 .ifdef NETWORKCONSOLE
         call    NCSTAT
         ora     a
@@ -302,21 +305,24 @@ CONST:
 
 CONIN:
 .ifdef RAMKEYBOARD
-.ifdef NETWORKCONSOLE
 CONINWAIT:
+.ifdef RAMCONSOLE
+        call    RAMCONTICK
+.endif
+.ifdef NETWORKCONSOLE
         call    NCSTAT
         ora     a
         jnz     CONINREMOTE
+.endif
         call    RKSTAT
         ora     a
         jz      CONINWAIT
         call    RKIN
         ret
+.ifdef NETWORKCONSOLE
 CONINREMOTE:
         call    NCIN
         ret
-.else
-        call    RKIN
 .endif
 .else
         call    ROMCALL
@@ -898,10 +904,10 @@ ROMSTACK equ    SAVESP
 ; Fixed outside both initialized resident layouts. This gives the relocated
 ; RAM-console BIOS its complete C600h..CDFFh window.
 .ifdef NETWORKV3
-; The complete 94-glyph RAM font now reaches just beyond CE00h. In permanent
-; all-RAM mode, move the transient BDOS buffers above the NetDisk-v3 code so
-; directory traffic cannot overwrite the final glyphs. This storage is runtime
-; state, not part of the initialized container.
+; The earlier 40-column font exposed a CE00h directory-buffer collision. Keep
+; the proven transient-buffer relocation above NetDisk-v3 even though the
+; smaller native 5x7 font no longer reaches that boundary. This storage is
+; runtime state, not part of the initialized container.
 DIRBUF   equ    0d640h
 .else
 DIRBUF   equ    0ce00h

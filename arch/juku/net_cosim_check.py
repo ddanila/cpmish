@@ -310,7 +310,7 @@ def run_fastboot_case(
             12: 5570,
             13: 5582,
             14: 5229,
-            15: 6256,
+            15: 6375,
         }[version]
         expected_extension = {
             4: 384,
@@ -425,7 +425,7 @@ def run_fastboot_case(
         require("x16 mode=4E" in log,
                 f"v{version} did not exercise 19200/8N1 in the USART model")
     if version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
-        expected_stream = 5853 if version == 15 else 4826
+        expected_stream = 5972 if version == 15 else 4826
         require(result["stream_bytes"] == expected_stream,
                 f"v{version} compressed stream is "
                 f"{result['stream_bytes']} bytes")
@@ -779,6 +779,10 @@ def run_fastboot_disk_case(
     if version == 15:
         require(state.get("mode") == "3" and state.get("pic_mask") == "FF",
                 "V15 RAM BIOS did not retain all-RAM mode with IRQs masked")
+        require(state.get("video_modx_mode") == "1" and
+                state.get("video_stride") == "50" and
+                state.get("video_lines") == "192",
+                "V15 RAM BIOS did not select modeled MODX 400x192 timing")
         require(state.get("usart_mode") == "5E",
                 "V15 RAM BIOS did not select its 19200/8O1 disk framing")
         require("x16 mode=4E" in log and "x16 mode=5E" in log,
@@ -932,12 +936,28 @@ def render_ram_console(transcript: bytes) -> bytes:
         font.extend(int(value, 16) for value in re.findall(
             r"\b([0-9a-f]+)h\b", line, re.IGNORECASE,
         ))
-    require(len(font) == 94 * 8,
-            f"RAM console font has {len(font)} bytes, expected 752")
+    require(len(font) == 95 * 7,
+            f"RAM console font has {len(font)} bytes, expected 665")
 
-    vram = bytearray(40 * 24 * 10)
+    # MODX uses 50 bytes per raster line.  Each character is a packed 5x7
+    # glyph plus one blank/cursor scanline, hence 80 columns x 24 rows.
+    vram = bytearray(50 * 24 * 8)
     column = row = 0
     escaped = False
+
+    def paint_cell(cell_row: int, cell_column: int,
+                   scanlines: bytes) -> None:
+        require(len(scanlines) == 8, "reference glyph must have 8 rows")
+        for scanline, pixels in enumerate(scanlines):
+            for x in range(5):
+                bit_position = cell_column * 5 + x
+                offset = (cell_row * 8 + scanline) * 50 + bit_position // 8
+                mask = 0x80 >> (bit_position & 7)
+                if pixels & (0x80 >> x):
+                    vram[offset] |= mask
+                else:
+                    vram[offset] &= ~mask
+
     for character in transcript:
         if escaped:
             escaped = False
@@ -959,16 +979,13 @@ def render_ram_console(transcript: bytes) -> bytes:
         elif character < 0x20:
             continue
         else:
-            if character > 0x7D:
+            if character > 0x7E:
                 character = ord("?")
-            cell = row * 400 + column
-            glyph = font[(character - 0x20) * 8:(character - 0x1F) * 8]
-            vram[cell] = 0
-            for scanline, value in enumerate(glyph, 1):
-                vram[cell + scanline * 40] = value
-            vram[cell + 9 * 40] = 0
+            start = (character - 0x20) * 7
+            glyph = bytes(font[start:start + 7]) + b"\x00"
+            paint_cell(row, column, glyph)
             column += 1
-            if column < 40:
+            if column < 80:
                 continue
             column = 0
             row += 1
@@ -977,6 +994,11 @@ def render_ram_console(transcript: bytes) -> bytes:
             vram[:9200] = vram[400:]
             vram[9200:] = bytes(400)
             row = 23
+
+    # RAMCONOUT leaves a five-pixel underline visible at the next character
+    # position and reloads its blink period.  The prompt-driven cosim captures
+    # terminate within that first visible phase.
+    paint_cell(row, column, b"\x00" * 7 + b"\xF8")
     return bytes(vram)
 
 
@@ -1744,6 +1766,10 @@ def run_ram_output_case(
                 for address in (0xD773, 0xD777, 0xD78F)),
             "RAM output left a NetBios service vector installed")
     state = parse_state(case / "final.state")
+    require(state.get("video_modx_mode") == "1" and
+            state.get("video_stride") == "50" and
+            state.get("video_lines") == "192",
+            "RAM console did not select modeled MODX 400x192 timing")
     if ram_keyboard:
         require(state.get("mode") == "3" and state.get("pic_mask") == "FF",
                 "RAM BIOS did not retain all-RAM mode with every IRQ masked: "

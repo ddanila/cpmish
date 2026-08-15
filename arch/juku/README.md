@@ -821,10 +821,12 @@ payload. The copier installs that payload at `B000h` and enters the relocated
 BIOS at `C600h`. The established 52K artifact and its loading rules are
 unchanged.
 
-Stage 1 replaces only `CONOUT` with a 40x24 RAM renderer and retains the proven
-RomBios `CONST`/`CONIN`, IR5 keyboard scan, and dispatcher. The renderer has an
-8x8 public-domain font in a 10-scanline cell, handles CR/LF/backspace, wraps,
-scrolls, and implements the `ESC L` clear used by cold boot. Code executes
+Stage 1 replaces only `CONOUT` with the native MODX-compatible 80x24 RAM
+renderer and retains the proven RomBios `CONST`/`CONIN`, IR5 keyboard scan, and
+dispatcher. The renderer has a CC0 5x7 font in an eight-scanline packed cell,
+an independently blinking five-pixel underline cursor, handles
+CR/LF/backspace, wraps, scrolls, and implements the `ESC L` clear used by cold
+boot. It reproduces MODX's exact PIT programming and 400x192 timing. Code executes
 below the mapped high-ROM window; framebuffer operations disable interrupts,
 select all-RAM mode 3, and restore normal mode 1 before returning. Since the
 retained RomBios frame service otherwise keeps painting its independently
@@ -864,9 +866,9 @@ bytes with an independent transcript renderer, and proves final mode 3, PIC
 mask `FFh`, intact `D79Fh`, and detached firmware service vectors.
 
 `juku-fastboot-v15-rambio.bin` carries the same RAM BIOS over the established
-fully buffered V14 transport as protocol V15. Its 6,249-byte artifact contains
+fully buffered V14 transport as protocol V15. Its 6,375-byte artifact contains
 a 125/128-byte stock core, 267-byte extension, eight-byte `ZF` descriptor, and
-a 5,846-byte ZX0 stream expanding to 8,320 bytes at `B000h`. The V15 core puts
+a 5,972-byte ZX0 stream expanding to 8,320 bytes at `B000h`. The V15 core puts
 its private stack below the compressed buffer; the simulator caught the first
 draft overwriting a legacy `B3F0h` stack while expanding the larger image.
 Clean transfer, corrupt/lost-stream recovery, delayed-Rx stress, byte-exact
@@ -892,14 +894,15 @@ boundary are unchanged. This is safe only because cold start has executed
 `DI`, masked every PIC input, selected permanent all-RAM mode 3, and detached
 all RomBios services.
 
-The larger BIOS also exposed a latent font/buffer collision: the final 14
-bytes of the complete `20h..7Dh` font crossed `CE00h`, where the original CP/M
-directory buffer could overwrite them. `DIAG ALL` made this visible because
-its `|` glyph began correctly and ended with live directory bytes. V15 now
-places its uninitialized directory/allocation/check buffers at `D640h..D73Fh`;
-the other layouts keep their established addresses. Characters above the font
-range render as `?` instead of indexing arbitrary RAM. The pixel oracle covers
-the repaired final glyphs byte-for-byte.
+The earlier 40-column prototype also exposed a latent font/buffer collision:
+its final 14 font bytes crossed `CE00h`, where the original CP/M directory
+buffer could overwrite them. `DIAG ALL` made this visible because its `|`
+glyph began correctly and ended with live directory bytes. V15 therefore
+retains the proven uninitialized directory/allocation/check buffers at
+`D640h..D73Fh`, even though the smaller native 5x7 font no longer reaches that
+boundary. The other layouts keep their established addresses. Characters
+above the font range render as `?` instead of indexing arbitrary RAM. The
+packed-pixel oracle covers the complete replacement font byte-for-byte.
 
 An explicitly negotiated `N4` host also enables the remote console described
 in `SERIAL-CONSOLE-PLAN.md`. Local rendering and matrix input remain active;
