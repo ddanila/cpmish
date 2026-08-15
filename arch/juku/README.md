@@ -496,12 +496,13 @@ not be removed or shortened and remain unchanged. V8 plus this policy projects
 roughly **5.64 s**, pending a logged CS00015 run; ordinary stock boot retains
 the captured padded execute form by default.
 
-`juku-fastboot-v9.bin` is the separate **polled-marker, exact-extension desk
-candidate**. It retains v8's interrupt-fed 4826-byte payload and concurrent
-ZX0 decode, but polls the two-byte `JZ` marker through the core receiver before
-unmasking IR2. It explicitly services the stale PIC request left by the polled
-`Z` during the existing 2 ms host gap, then uses a payload-only ISR without the
-idle ring or payload-state branches. Its core publishes an exact 16-bit
+`juku-fastboot-v9.bin` is the separate **polled-marker, exact-extension
+physical candidate**. It retains v8's interrupt-fed 4826-byte payload and
+concurrent ZX0 decode, but polls the two-byte `JZ` marker through the core
+receiver before unmasking IR2. It explicitly services the stale PIC request
+left by the polled `Z` during the existing 2 ms host gap, then uses a
+payload-only ISR without the idle ring or payload-state branches. Its core
+publishes an exact 16-bit
 extension length, so the 556-byte extension is no longer padded to 640 bytes.
 
 The artifact is 5518 bytes with SHA-256
@@ -510,8 +511,21 @@ Clean/fault cosim and a full CP/M `DIR` continuation pass byte-exactly. V9 takes
 78,667 cycles from the final compressed byte to CA00h, versus v8's 203,037;
 including exact extension transfer it models **117 ms faster than v8** and
 **390 ms faster than v7**. Together with compact stock execute this projects
-about **5.52 s** to the first disk request. It remains a desk candidate pending
-a logged CS00015 run; v8 and all earlier artifacts remain byte-identical.
+about **5.52 s** to the first disk request. On 2026-08-15 physical CS00015
+completed this exact v9 artifact with `--compact-stock-execute`, reached the
+visible CP/M prompt, and completed network `DIR`. The run qualifies the
+conservative-guard v9 path and compact execute on real hardware; it did not
+retain an exact first-request timestamp, so 5.52 s remains a desk projection.
+V8 and all earlier artifacts remain byte-identical.
+
+A post-qualification instruction audit also showed why v9's payload ISR exit
+jump is intentional. Removing it made the first overlapped decode fail despite
+an exact compressed buffer and CRC; retry passed only after the complete input
+was resident. The faster ISR returned enough cycles for the decoder to exhaust
+the fixed 256-byte producer lead. A separate static-only rearrangement reduced
+the bundle to 5505 bytes and passed cosim, but its roughly 6.8 ms wire saving
+does not justify replacing the physically qualified hash. Any revisit should
+use a newly named artifact and repeat the physical test.
 
 The separately selected host policy `--fast-low-latency-guards` requires
 `--compact-stock-execute` and leaves v9 byte-identical. It uses `tcdrain()`
