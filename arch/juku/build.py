@@ -24,6 +24,11 @@ zmac(
     deps=["include/cpm.lib", "./bios.asm"],
 )
 zmac(
+    name="bios-net-mode2-broken",
+    src="./bios-net-mode2-broken.asm",
+    deps=["include/cpm.lib", "./bios.asm"],
+)
+zmac(
     name="bios-net-v2",
     src="./bios-net-v2.asm",
     deps=["include/cpm.lib", "./bios.asm"],
@@ -333,6 +338,15 @@ ld80(
     },
 )
 ld80(
+    name="memory-net-mode2-broken",
+    address=CBASE,
+    objs={
+        CBASE: ["third_party/dr/ccp+ccp-juku"],
+        FBASE: ["third_party/dr/bdos"],
+        BBASE: [".+bios-net-mode2-broken"],
+    },
+)
+ld80(
     name="memory-net-v2",
     address=CBASE,
     objs={
@@ -371,6 +385,15 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETMODE2SYSTEM",
+)
+simplerule(
+    name="systemfile-net-mode2-broken",
+    ins=[".+memory-net-mode2-broken"],
+    outs=["=juku-net-mode2-broken-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETMODE2BROKENSYSTEM",
 )
 simplerule(
     name="systemfile-net-v2",

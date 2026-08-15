@@ -746,6 +746,59 @@ all requests through sequence `90` with status zero, and the screen remained
 clean. This validates the EKDOS-style RomBios console path and corrected NetBios
 handoff on real CS00014 hardware.
 
+The pre-fix handoff is now retained as a deliberately broken, simulator-only
+negative image. `juku-net-mode2-broken-system.bin` omits the early `DI`, leaves
+the NetBios service registrations installed, and omits the coherent PIC
+hardware/shadow transition. It must never be used on hardware. In cosim it
+reaches the same initial `A>` prompt as the corrected image, but a matrix-typed
+`DIR` produces no echo and no disk traffic: the read count remains at the 32
+startup directory records. The corrected RomBios control consumes `DIR` and
+reaches 35 reads in the immediately following run. The broken checkpoint keeps
+the original `D79Fh` bytes, proving that stale NetBios services alone reproduce
+the dead-keyboard failure; the historical interim overwrite of `D79Fh` was a
+second, independent defect rather than a necessary cause of the input stall.
+`make juku-net-cosim-check` and the quicker
+`python3 arch/juku/net_cosim_check.py --keyboard-only` require both sides of
+this A/B regression.
+
+### RAM-console path
+
+Keep the present 52K `B400h/BC00h/CA00h` RomBios image frozen as the physical
+baseline. A RAM-console experiment must be a separately named artifact and
+must not revive either historical handoff defect. In particular, it will keep
+the corrected NetBios detach sequence and leave the firmware `D79Fh`
+dispatcher untouched while any firmware interrupt service remains enabled.
+
+There is not enough honest space to bolt a renderer onto the current layout.
+The linked NetDisk-v2 resident image is 6593 of 6656 bytes, leaving 63 bytes in
+the stock `B400h..CDFFh` payload. The audited `CF00h..CFFFh` page is only 256
+bytes and is too small for a renderer plus a useful font. The planned RAM path
+therefore uses a separate 51K layout shifted down by 1 KiB:
+
+| component | RomBios baseline | RAM-console experiment |
+| --- | ---: | ---: |
+| CCP | `B400h` | `B000h` |
+| BDOS | `BC00h` | `B800h` |
+| BIOS | `CA00h` | `C600h` |
+| exclusive upper boundary | `CE00h` | `CE00h` |
+
+The smaller TPA buys 1024 resident bytes without trespassing into firmware
+work RAM or the framebuffer. The unmodified monitor can still load it: the
+host sends a small `0100h` staging copier through stock Janet, the copier moves
+the expanded resident payload to `B000h`, and execution enters the relocated
+BIOS. Fastboot will gain the same separately versioned layout only after this
+stock-bootstrap path is correct.
+
+Implementation is deliberately staged. Stage 1 replaces only `CONOUT` with a
+RAM routine and retains the proven RomBios `CONST`/`CONIN`, IR5 keyboard scan,
+and dispatcher. The output routine executes below the mapped high-ROM window,
+disables interrupts, temporarily selects all-RAM mode 3 to read/scroll the
+framebuffer, restores mode 1, and then re-enables interrupts. Stage 2 moves
+keyboard scan/decode into RAM while preserving the RomBios result as an A/B
+oracle. Owning the complete interrupt entry is last; it requires a full
+replacement for the stack, bank-mode, PIC/EOI, keyboard, and frame-service
+contract and must not be implemented by patching `D79Fh` in isolation.
+
 The native character generator displayed a printable Estonian glyph while the
 control-key combination was entered. Preserve the working console baseline for
 now; a future console/character-set study should determine whether selectable

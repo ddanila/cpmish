@@ -79,10 +79,12 @@ PICSHADOW      equ     0d454h
 ; Cold start. Bootstrap has already loaded the resident image.
 BOOT:
 .ifdef NETWORK
+.ifndef BROKEN_NET_HANDOFF
         ; NetBios executes the resident image with its USART requests still
         ; installed and may have IR2 pending. Close that handoff window before
         ; touching the CP/M stack or workspace; NETINIT later enables only IR5.
         di
+.endif
 .endif
         lxi     sp,0100h
 
@@ -338,10 +340,12 @@ NETRWDISK:
         inr     a
         sta     SEQUENCE
 NETRETRY:
+.ifndef BROKEN_NET_HANDOFF
         di
         mvi     a,0ffh
         out     PICMASK
         sta     PICSHADOW
+.endif
         mvi     a,035h
         out     USARTCTL      ; TxEN + RxE + error reset + RTS
         mvi     b,0
@@ -462,12 +466,14 @@ NETCHECK:
         jz      NETDONE
         mvi     a,1
 NETDONE:
+.ifndef BROKEN_NET_HANDOFF
         push    psw
         mvi     a,0dfh
         out     PICMASK
         sta     PICSHADOW
         ei
         pop     psw
+.endif
         ret
 
 NETSEND:
@@ -537,6 +543,7 @@ NETREADY:
         sta     NETV2
 NETCAPDONE:
 .endif
+.ifndef BROKEN_NET_HANDOFF
         ; NET_USART_INIT registered handlers 2, 3 and 9 through RomBios FF89.
         ; Restore those three service-vector slots to their pre-NetBios RET
         ; entries. In particular, service 9 runs from the normal frame path,
@@ -551,6 +558,7 @@ NETCAPDONE:
         out     PICMASK
         sta     PICSHADOW
         ei
+.endif
         ret
 .else
 RWDISK:

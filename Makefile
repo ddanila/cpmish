@@ -10,6 +10,7 @@ juku-cosim-check: juku.img
 
 .PHONY: juku-net-cosim-check
 juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin \
+		juku-net-mode2-broken-system.bin \
 		juku-net-mode2-system.bin juku-net-mode2.img \
 		juku-net-baudtest-system.bin juku-net-smoke.img \
 		juku-net-baudtest-9600.img juku-net-baudtest-8n1.img \

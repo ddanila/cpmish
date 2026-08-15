@@ -26,6 +26,7 @@ COSIM = Path(os.environ.get("JUKU_COSIM_ROOT", ROOT.parent / "8080-cosim"))
 ROM = COSIM / "roms" / "ekta37.bin"
 SYSTEM = ROOT / "juku-net-system.bin"
 MODE2_SYSTEM = ROOT / "juku-net-mode2-system.bin"
+BROKEN_MODE2_SYSTEM = ROOT / "juku-net-mode2-broken-system.bin"
 MODE2_FLAT = ROOT / "juku-net-mode2.img"
 NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
@@ -595,6 +596,23 @@ def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
     )
 
 
+def read_console_for(fd: int, duration: float) -> bytes:
+    """Collect all console output during a fixed diagnostic interval."""
+    import select
+
+    result = bytearray()
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.05)
+        if not ready:
+            continue
+        try:
+            result.extend(os.read(fd, 4096))
+        except OSError:
+            break
+    return bytes(result)
+
+
 def read_console_prompt(fd: int, timeout: float) -> bytes:
     """Read through the final idle A> prompt, ignoring A> inside file text."""
     import select
@@ -1102,6 +1120,89 @@ def run_mode2_keyboard_case(trace: Path, work: Path) -> None:
     )
 
 
+def run_broken_handoff_case(trace: Path, work: Path) -> None:
+    """Require the reconstructed pre-fix handoff to lose keyboard input."""
+    case = work / "broken-handoff"
+    case.mkdir()
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_TRACE_BANK="0",
+        JUKU_KEYS="TN0201|",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_CHECKPOINT_PREFIX=str(case / "final"),
+    )
+    volume = bytearray(MODE2_FLAT.read_bytes())
+    stats: dict[str, int] = {}
+    disk_error: list[BaseException] = []
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        try:
+            serve_boot(
+                master, BROKEN_MODE2_SYSTEM.read_bytes(), timeout=120,
+                verbose=False,
+            )
+
+            def disk_worker() -> None:
+                try:
+                    serve_disk(
+                        master, volume, timeout=60, idle_timeout=None,
+                        verbose=False, stats=stats,
+                    )
+                except BaseException as error:
+                    disk_error.append(error)
+
+            worker = threading.Thread(target=disk_worker)
+            worker.start()
+            first = read_console_until(console_master, b"A>", 120)
+            reads_before = stats.get("reads", 0)
+            os.write(console_master, b"DIR\r")
+            after = read_console_for(console_master, 3.0)
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            os.close(master)
+            if "worker" in locals():
+                worker.join(timeout=3)
+            os.close(console_master)
+
+    require(b"CP/Mish 2.2 Juku" in first,
+            "broken handoff did not reach the same initial CP/M prompt")
+    require(after == b"",
+            f"broken handoff unexpectedly serviced keyboard input: {after!r}")
+    require(stats.get("reads", 0) == reads_before,
+            "broken handoff unexpectedly issued DIR disk reads")
+    require(all(isinstance(error, OSError) for error in disk_error),
+            f"broken handoff disk server failed unexpectedly: {disk_error!r}")
+    final_ram = (case / "final.ram").read_bytes()
+    require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
+            "broken handoff unexpectedly changed D79F")
+    require(any(final_ram[address] != 0xC9
+                for address in (0xD773, 0xD777, 0xD78F)),
+            "broken handoff did not retain a NetBios service vector")
+    print(
+        "Historical NetBios handoff failure: REPRODUCED "
+        f"(initial prompt reached; DIR ignored; reads stayed at {reads_before})"
+    )
+
+
 def run_native_drive_b_case(trace: Path, work: Path, game_image: Path) -> None:
     """Select, list, and execute a program from a native two-sided B:."""
     case = work / "native-drive-b"
@@ -1460,7 +1561,8 @@ def main() -> None:
     require(
         all(path.is_file() for path in (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
-            MODE2_SYSTEM, MODE2_FLAT, NETDISK_V2_SYSTEM, NETDISK_V2_FLAT,
+            MODE2_SYSTEM, BROKEN_MODE2_SYSTEM, MODE2_FLAT,
+            NETDISK_V2_SYSTEM, NETDISK_V2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
@@ -1604,6 +1706,7 @@ def main() -> None:
             print("JUKU-FASTBOOT-COSIM-CHECK: PASS")
             return
         if args.keyboard_only:
+            run_broken_handoff_case(trace, work)
             run_mode2_keyboard_case(trace, work)
             if args.game_disk:
                 run_native_drive_b_case(trace, work, args.game_disk)
@@ -1654,6 +1757,7 @@ def main() -> None:
             expected_mode2=True,
         )
         run_mode2_keyboard_case(trace, work)
+        run_broken_handoff_case(trace, work)
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)
