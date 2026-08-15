@@ -10,9 +10,7 @@
 
         cseg
 label   BBASE
-.ifndef CPM3ADAPTER
         public  VERMSG
-.endif
 .ifdef RAMKEYBOARD
         extrn   RKINIT
         extrn   RKSTAT
@@ -58,14 +56,8 @@ PRINTCH        equ     0ffeeh
 BDOSADDR       equ     0ff64h
 CONCW          equ     0ffb4h
 
-; Runtime workspace.  The normal CP/M 2 build keeps the established RomBios
-; addresses.  The first CP/M Plus baseline deliberately limits its TPA below
-; A000h; its compatibility adapter lives at A000h and owns B000h..B409h.
-.ifdef CPM3ADAPTER
-TYP            equ     0b100h
-.else
+; RomBios floppy work area.
 TYP            equ     0d600h
-.endif
 ERRC           equ     TYP+9
 TYPEA          equ     TYP+10
 TYPEB          equ     TYP+11
@@ -98,11 +90,7 @@ PIT3COUNT0     equ     018h
 PIT3CTL        equ     01bh
 .endif
 PICMASK        equ     001h
-.ifdef CPM3ADAPTER
-PICSHADOW      equ     0b0f0h
-.else
 PICSHADOW      equ     0d454h
-.endif
 .endif
 
 ; Cold start. Bootstrap has already loaded the resident image.
@@ -116,9 +104,7 @@ BOOT:
         di
 .endif
 .endif
-.ifndef CPM3ADAPTER
         lxi     sp,0100h
-.endif
 
 .ifndef RAMKEYBOARD
         ; Publish the BDOS address through the RomBios-owned pointer.
@@ -140,9 +126,7 @@ BOOT:
 .ifdef NETWORKV2
         sta     NETV2
 .endif
-.ifndef CPM3ADAPTER
         call    NETINIT
-.endif
 .else
         sta     TYPEB
 .endif
@@ -181,35 +165,6 @@ BOOT:
         sta     CDISK
         sta     HSTACT
         sta     HSTWRT
-
-.ifdef CPM3ADAPTER
-        ; Ekta4402 V15 enters with the 19,200 clock selected but leaves the
-        ; USART in bootstrap 8N1 framing.  CP/M Plus starts a fresh NetDisk-v3
-        ; session directly, so select its 8O1 framing without waiting for the
-        ; legacy NR capability exchange that the CP/Mish loader performs.
-        mvi     a,015h
-        out     PIT3CTL
-        mvi     a,4
-        out     PIT3COUNT0
-        xra     a
-        out     USARTCTL
-        out     USARTCTL
-        out     USARTCTL
-        mvi     a,040h
-        out     USARTCTL
-        mvi     a,05eh
-        out     USARTCTL
-        mvi     a,034h
-        out     USARTCTL
-        in      USARTDATA
-        mvi     a,3
-        call    N3ENA
-        call    RAMCONINIT
-        call    RKINIT
-        ei
-        ret
-WBOOT:  ret
-.else
 
         call    PRINT
         db      01bh,'L'
@@ -303,7 +258,6 @@ GOCPM:
         mov     c,a
         call    SELDSK
         jmp     CBASE
-.endif
 
 ; Monitor calls can alter registers and use their own working stack. This
 ; trampoline follows the calling discipline observed in EKDOS 2.30 while
@@ -936,21 +890,13 @@ NETTRIES:db     0
 ; These words must remain visible when a monitor call returns with the ROM
 ; overlay active. EKDOS therefore keeps them above the overlay window rather
 ; than inside the CA00h BIOS image.
-.ifdef CPM3ADAPTER
-SAVEHL   equ    0b0eeh
-SAVESP   equ    0b0ech
-.else
 SAVEHL   equ    0d2feh
 SAVESP   equ    0d2fch
-.endif
 ROMSTACK equ    SAVESP
 ; BDOS scratch space is intentionally outside the initialized BIOS
 ; image, matching the established EKDOS memory map.
 ; Fixed outside both initialized resident layouts. This gives the relocated
 ; RAM-console BIOS its complete C600h..CDFFh window.
-.ifdef CPM3ADAPTER
-DIRBUF   equ    0b180h
-.else
 .ifdef NETWORKV3
 ; The complete 94-glyph RAM font now reaches just beyond CE00h. In permanent
 ; all-RAM mode, move the transient BDOS buffers above the NetDisk-v3 code so
@@ -959,7 +905,6 @@ DIRBUF   equ    0b180h
 DIRBUF   equ    0d640h
 .else
 DIRBUF   equ    0ce00h
-.endif
 .endif
 ALLOC0   equ    DIRBUF+128
 ALLOC1   equ    ALLOC0+32

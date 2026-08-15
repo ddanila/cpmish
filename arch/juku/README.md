@@ -219,70 +219,24 @@ identity changes.
    64 KiB RAM bank has no spare backing store. Host-backed A:/B: volumes cover
    the diskless use case. Revisit only for expanded-memory hardware or an
    explicitly TPA-reducing experiment.
-6. ~~Reuse the proven hardware layer for a nonbanked CP/M Plus 3.1 port.~~
+6. ~~Prove that the shared hardware layer can support non-banked CP/M Plus
+   3.1, then separate the genuine CP/M Plus port from CP/Mish.~~
 
-## CP/M Plus 3.1 baseline
+## CP/M Plus separation
 
-The first non-banked CP/M Plus port is now reproducible and simulator-proven.
-It uses the current 2026-06-07 CP/M 3.1 BDOS/CCP release, a new strict-8080
-Juku BIOS, Digital Research's standard SCB linkage, and the already qualified
-RAM console, polled keyboard, and NetDisk-v3 hardware layer. No code from the
-third-party CP/M-on-2 compatibility BIOS was copied; that source was used only
-to cross-check the documented CP/M 3 XDPH and boot conventions.
+The simulator-proven CP/M Plus prototype formerly carried here is now the
+standalone [`ddanila/cpm-plus-juku`](https://github.com/ddanila/cpm-plus-juku)
+project. It uses Digital Research's CP/M 3 CCP/BDOS/SCB and BIOS conventions;
+it is not an evolution named “CP/Mish 3”. Published prototype history remains
+visible in this branch, but CP/M Plus sources, inputs, artifacts, build rules,
+and tests no longer live in the CP/Mish tree.
 
-The deliberately conservative non-banked map is:
-
-```text
-0100h..7CFFh  31 KiB TPA
-7D00h..9BFFh  CP/M Plus BDOS
-9C00h..9FFFh  Juku CP/M 3 BIOS
-A000h..AFFFh  CP/M-compatible Juku hardware adapter
-B000h..B409h  adapter state, buffers, and NetDisk-v3 cache
-```
-
-Keeping the adapter outside the advertised TPA is the correctness baseline.
-The simulator reproduced both early implementation failures precisely: a
-larger TPA overwrote adapter state, and omitting the standard `SCB.REL` linkage
-made BDOS select the bogus drive `C3h`. The retained 256-PC execution-history
-ring reduced the latter from a silent prompt timeout to the exact bad
-`SELDSK` call. Both are now structural checks rather than timing guesses. A
-future native CP/M 3 hardware module may reclaim the `A000h..B409h` gap after
-it matches this baseline; it must not replace it before then.
-
-Ekta4402 command `N` loads the 16 KiB `7000h..AFFFh` container directly with
-V15 at 19,200/8N1. The adapter then establishes a fresh 19,200/8O1 NetDisk-v3
-session without the stock `NR` negotiation, prints its CP/M Plus/Juku build
-identity, loads `CCP.COM` from the network A: volume, and remains entirely in
-RAM. The end-to-end regression reaches `A>`, executes `DIR`, loads and runs the
-shared `DIAG CPU` transient, and completes 36 read-ahead requests while
-asserting memory mode 3, PIC mask `FFh`, and USART mode `5Eh`:
-
-```sh
-cd ~/fun/cpmish && make juku-cpm3-cosim-check
-```
-
-The checked-in build inputs and deterministic regeneration recipe live in
-`third_party/cpm3/`. Current artifact SHA-256 values are:
-
-- `juku-cpm3-system.bin`:
-  `f983ca17c7382048afb61b7e02afe29bfa1f86bedc3fde22ac1d2cba5f20f43d`
-- `juku-fastboot-v15-cpm3.bin`:
-  `be2393e02732c9d24a8dd2b95b5ba1a313d45b17d64bd7dcdf83901b181c93ce`
-- `juku-cpm3.img`:
-  `77bd0c14f3d68ad26dba5535ba2c8fbaa968cf583a848aa99c175172c0b702d3`
-
-For a future physical test, build the three artifacts, start the direct server
-below, then press `N` alone at the Ekta4402 monitor:
-
-```sh
-cd ~/fun/cpmish && ../8080-cosim/tools/janet_disk_server.py \
-    --fast-stage1 juku-fastboot-v15-cpm3.bin --direct-fastboot \
-    --disk-baud 19200 --disk-protocol 3 --timeout 86400 \
-    /dev/ttyUSB0 juku-cpm3-system.bin juku-cpm3.img
-```
-
-This CP/M Plus path is simulator-qualified, not yet hardware-qualified. The
-RomBios CP/Mish path remains the physical baseline and is unchanged.
+The reusable RAM console, keyboard, NetDisk-v3, remote console, and direct
+fastboot target sources now live in the pinned `third_party/juku-common`
+submodule. CP/Mish continues to build its CP/M 2.x Juku products from those
+shared modules while retaining its own BIOS policy and all established
+RomBios/RAM-BIOS artifacts. CP/M Plus owns its separate system map, BIOS, disk
+image, documentation, and simulator regression in its own repository.
 
 ## Diskless network mode
 

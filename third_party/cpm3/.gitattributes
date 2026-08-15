@@ -1,3 +1,0 @@
-# Preserve the CP/M-era byte representation of checked-in build inputs.
-gencpm.dat -text -diff
-scb.asm -text -diff

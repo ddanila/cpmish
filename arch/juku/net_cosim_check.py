@@ -34,7 +34,7 @@ NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
 RAMOUT_SYSTEM = ROOT / "juku-net-v2-ramout-system.bin"
 RAMBIOS_SYSTEM = ROOT / "juku-net-v2-rambio-system.bin"
 RAMBIOS_V3_SYSTEM = ROOT / "juku-net-v3-rambio-system.bin"
-RAMOUT_FONT = ROOT / "arch" / "juku" / "ram-console-font.asm"
+RAMOUT_FONT = ROOT / "third_party" / "juku-common" / "platform" / "ram-console-font.asm"
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
 SMOKE_FLAT = ROOT / "juku-net-smoke.img"
@@ -310,7 +310,7 @@ def run_fastboot_case(
             12: 5570,
             13: 5582,
             14: 5229,
-            15: 6249,
+            15: 6256,
         }[version]
         expected_extension = {
             4: 384,
@@ -425,7 +425,7 @@ def run_fastboot_case(
         require("x16 mode=4E" in log,
                 f"v{version} did not exercise 19200/8N1 in the USART model")
     if version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
-        expected_stream = 5846 if version == 15 else 4826
+        expected_stream = 5853 if version == 15 else 4826
         require(result["stream_bytes"] == expected_stream,
                 f"v{version} compressed stream is "
                 f"{result['stream_bytes']} bytes")
