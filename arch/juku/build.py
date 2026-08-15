@@ -61,7 +61,20 @@ zmac(
         "./ram-console-font.asm",
     ],
 )
+zmac(
+    name="bios-cpm3-adapter",
+    src="./bios-cpm3-adapter.asm",
+    deps=[
+        "include/cpm.lib", "./bios.asm", "./ram-console.asm",
+        "./ram-console-font.asm",
+    ],
+)
 zmac(name="netdisk-v3", src="./netdisk-v3.asm")
+zmac(
+    name="netdisk-v3-cpm3",
+    src="./netdisk-v3.asm",
+    defines=["CPM3ADAPTER"],
+)
 zmac(name="netconsole", src="./netconsole.asm")
 zmac(
     name="diag",
@@ -309,6 +322,15 @@ zmac(
     relocatable=False,
 )
 zmac(
+    name="fastboot-v15-cpm3-extension",
+    src="./fastboot-v3-extension.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_TIGHT", "FASTBOOT_V15",
+        "FASTBOOT_STREAM_ACK", "FASTBOOT_CPM3",
+    ],
+    relocatable=False,
+)
+zmac(
     name="fastboot-v4-core",
     src="./fastboot-v4-core.asm",
     relocatable=False,
@@ -439,6 +461,34 @@ ld80(
         0xD210: [".+netdisk-v3"],
         0xD480: [".+netconsole"],
     },
+)
+ld80(
+    name="cpm3-adapter-memory",
+    address=0xA000,
+    objs={
+        0xA000: [".+bios-cpm3-adapter"],
+        0xA900: [".+ram-keyboard"],
+        0xAC10: [".+netdisk-v3-cpm3"],
+        0xAE80: [".+netconsole"],
+    },
+)
+
+simplerule(
+    name="cpm3-adapter-bin",
+    ins=[".+cpm3-adapter-memory"],
+    outs=["=juku-cpm3-adapter.bin"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUCPM3ADAPTER",
+)
+simplerule(
+    name="cpm3-systemfile",
+    ins=[".+cpm3-adapter-bin", "third_party/cpm3/cpm3.sys"],
+    deps=["./mksystem3.py"],
+    outs=["=juku-cpm3-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem3.py {ins[0]} {ins[1]} {outs[0]}",
+    ],
+    label="JUKUCPM3SYSTEM",
 )
 
 # Juku's preserved SYSGEN files reserve 512 bytes before the 52 resident
@@ -698,6 +748,21 @@ simplerule(
     label="JUKUFASTBOOTV15NETDISKV3",
 )
 simplerule(
+    name="fastboot-v15-cpm3-bin",
+    ins=[
+        ".+fastboot-v15-core",
+        ".+fastboot-v15-cpm3-extension",
+        ".+cpm3-systemfile",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v15-cpm3.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV15CPM3",
+)
+simplerule(
     name="systemfile-net-smoke",
     ins=[".+memory-net"],
     outs=["=juku-net-smoke-system.bin"],
@@ -766,6 +831,18 @@ net_v2_diskimage = diskimage(
         "rdbench.com": ".+readbench",
         "stat.com": "cpmtools+stat",
         "submit.com": "cpmtools+submit",
+    },
+)
+
+cpm3_diskimage = diskimage(
+    name="cpm3-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-v2",
+    size=409600,
+    map={
+        "ccp.com": "third_party/cpm3/ccp.com",
+        "readme.txt": readme,
+        "diag.com": ".+diag",
     },
 )
 
@@ -882,6 +959,13 @@ simplerule(
     outs=["=juku-net-v2.img"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUNETV2VOLUME",
+)
+simplerule(
+    name="cpm3-volume",
+    ins=[cpm3_diskimage],
+    outs=["=juku-cpm3.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUCPM3VOLUME",
 )
 simplerule(
     name="net-mode2-soak-volume",

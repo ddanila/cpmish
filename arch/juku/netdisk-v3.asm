@@ -12,15 +12,26 @@
 
 USARTDATA      equ     008h
 USARTCTL       equ     009h
+.ifdef CPM3ADAPTER
+SEKDSK         equ     0b11ah
+SEKTRK         equ     0b11bh
+SEKSEC         equ     0b11dh
+MEMADR         equ     0b12eh
+.else
 SEKDSK         equ     0d61ah
 SEKTRK         equ     0d61bh
 SEKSEC         equ     0d61dh
 MEMADR         equ     0d62eh
+.endif
 DKRD           equ     011h
 DKRC           equ     013h
 DKRA           equ     014h
 
+.ifdef CPM3ADAPTER
+CACHE          equ     0b280h
+.else
 CACHE          equ     0d080h
+.endif
 SLOTSIZE       equ     131
 
 N3ENA: sta     N3MODE

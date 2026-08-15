@@ -14,7 +14,7 @@ CORE_SIZE = 128
 SYSTEM_PREFIX = 512
 SYSTEM_SIZE = 6656
 COMPRESSED_LIMIT = 0x1800
-V15_COMPRESSED_LIMIT = 0x2000
+V15_COMPRESSED_LIMIT = 0x2800
 VERSIONS = {
     b"JFV9": (9, b"Z9"),
     b"JF10": (10, b"ZA"),
@@ -60,8 +60,13 @@ def main() -> int:
     if version == 15:
         if not system_image.startswith(b"JUKURM1\x1a"):
             raise ValueError("fastboot v15 requires a JUKURM1 system image")
-        if system_image[8:12] != bytes.fromhex("00 b0 00 c6"):
-            raise ValueError("fastboot v15 requires B000h/C600h RAM layout")
+        if system_image[8:12] not in (
+            bytes.fromhex("00 b0 00 c6"),
+            bytes.fromhex("00 70 00 9c"),
+        ):
+            raise ValueError(
+                "fastboot v15 requires a supported Juku RAM layout"
+            )
         system_size = int.from_bytes(system_image[12:14], "little")
         if len(system_image) != SYSTEM_PREFIX + system_size:
             raise ValueError("fastboot v15 JUKURM1 length is inconsistent")

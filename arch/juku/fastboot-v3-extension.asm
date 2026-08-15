@@ -14,6 +14,11 @@
 USARTDATA       equ     008h
 USARTCTL        equ     009h
 
+.ifdef FASTBOOT_CPM3
+DESTINATION     equ     07000h
+ENTRY           equ     09c00h
+SYSTEM_SIZE     equ     04000h
+.else
 .ifdef FASTBOOT_RAMBIOS
 DESTINATION     equ     0b000h
 ENTRY           equ     0c600h
@@ -22,6 +27,7 @@ SYSTEM_SIZE     equ     02080h
 DESTINATION     equ     0b400h
 ENTRY           equ     0ca00h
 SYSTEM_SIZE     equ     01a00h
+.endif
 .endif
 .ifdef FASTBOOT_ZX0
 COMPRESSED      equ     04000h

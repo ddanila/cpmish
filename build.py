@@ -48,6 +48,9 @@ export(
             "arch/juku+fastboot-v15-rambio-bin",
         "juku-fastboot-v15-netdisk-v3.bin":
             "arch/juku+fastboot-v15-netdisk-v3-bin",
+        "juku-cpm3-system.bin": "arch/juku+cpm3-systemfile",
+        "juku-fastboot-v15-cpm3.bin": "arch/juku+fastboot-v15-cpm3-bin",
+        "juku-cpm3.img": "arch/juku+cpm3-volume",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
         "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",
