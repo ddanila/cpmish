@@ -1,5 +1,6 @@
 ; Juku E5101/E5104 CP/Mish BIOS
-; Copyright (c) 2026 Daniel Danilov
+; Copyright (c) 2026 Danila Sukharev
+; Developed with OpenAI GPT-5.6 Sol assistance.
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
 ; Strict Intel 8080 source. Console and printer access use the same public

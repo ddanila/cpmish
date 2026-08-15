@@ -1,6 +1,7 @@
         title   'Juku nonbanked CP/M Plus 3.1 BIOS'
 
-; Copyright (c) 2026 Daniel Danilov
+; Copyright (c) 2026 Danila Sukharev
+; Developed with OpenAI GPT-5.6 Sol assistance.
 ; Distributed under the 2-clause BSD license; see COPYING.cpmish.
 ;
 ; CP/M Plus retains the standard first seventeen CP/M 2 BIOS calls.  This
