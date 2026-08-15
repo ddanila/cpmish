@@ -733,7 +733,14 @@ def run_fastboot_disk_case(
             require(stats.get("reads", 0) <= 13,
                     f"fastboot NetDisk v3 did not use read-ahead: {stats}")
     elif command == b"DIAG ALL":
-        require(b"CPU: PASS" in second and b"RAM: PASS" in second,
+        require(
+            all(label in second for label in (
+                b"CPU: PASS",
+                b"RAM data: PASS",
+                b"RAM address: PASS",
+                b"RAM retention: PASS",
+                b"Checksum: PASS",
+            )),
                 f"shared DIAG clean result differs: {second!r}")
     elif command == b"DIAG CPU" and diag_cpu_fault:
         require(b"CPU: FAIL mask 02" in second,

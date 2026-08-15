@@ -137,9 +137,12 @@ make juku-system.bin juku.img
 The disk also contains `DIAG.COM`, a CP/M wrapper around the shared diagnostic
 cores from the pinned `juku-common` submodule. `DIAG CPU` checks the 8080
 ALU/flags, rotates, DAA, register-pair increment/DAD, SP, and PUSH/POP paths;
-`DIAG MEM` tests and restores a private 256-byte scratch page; and `DIAG ALL`
-runs both. A zero failure mask is `PASS`; a failure prints the structured hex
-mask. No argument preserves the original private-memory-test behavior.
+`DIAG MEM` tests and restores a private 256-byte scratch page; `DIAG ADDR`
+checks its A0..A7 aliases; `DIAG RET` holds and restores one cell; `DIAG RAM`
+runs all three; `DIAG SUM` exercises the shared integrity primitive; and
+`DIAG ALL` runs CPU, the RAM suite, and checksum. Data and retention failures
+print a per-bit mask directly mapping bit 0..7 to D84..D91. No argument
+preserves the original private-memory-test behavior.
 Initialize dependencies after cloning with:
 
 ```sh

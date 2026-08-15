@@ -69,6 +69,9 @@ zmac(
     deps=[
         "third_party/juku-common/diag/cpu.asm",
         "third_party/juku-common/diag/memory.asm",
+        "third_party/juku-common/diag/memory-address.asm",
+        "third_party/juku-common/diag/memory-retention.asm",
+        "third_party/juku-common/diag/checksum.asm",
     ],
     relocatable=False,
 )
