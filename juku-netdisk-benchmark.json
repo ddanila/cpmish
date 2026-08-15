@@ -1,0 +1,130 @@
+{
+  "schema": "juku-netdisk-comparison-v1",
+  "baseline": {
+    "schema": "juku-netdisk-benchmark-v1",
+    "variant": "v1-record",
+    "cpu_hz": 1700000,
+    "baud": 19200,
+    "framing": "8O1",
+    "host_protocol": 1,
+    "boot_disk": {
+      "simulator_elapsed_seconds": 0.7338461219333112,
+      "read_requests": 32,
+      "records_transferred": 32,
+      "wire_bytes": 4544,
+      "modeled_wire_seconds": 2.6673333333333336,
+      "compact_records": 0,
+      "compact_bytes_saved": 0
+    },
+    "commands": {
+      "DIR": {
+        "simulator_elapsed_seconds": 0.9105308729922399,
+        "read_requests": 3,
+        "records_transferred": 3,
+        "wire_bytes": 426,
+        "modeled_wire_seconds": 0.25006249999999997,
+        "console_bytes": 132,
+        "compact_records": 0,
+        "compact_bytes_saved": 0
+      },
+      "TYPE README.TXT": {
+        "simulator_elapsed_seconds": 13.542857393971644,
+        "read_requests": 71,
+        "records_transferred": 71,
+        "wire_bytes": 10082,
+        "modeled_wire_seconds": 5.918145833333334,
+        "console_bytes": 9185,
+        "compact_records": 0,
+        "compact_bytes_saved": 0
+      },
+      "RDBENCH": {
+        "simulator_elapsed_seconds": 1.630638913018629,
+        "read_requests": 75,
+        "records_transferred": 75,
+        "wire_bytes": 10650,
+        "modeled_wire_seconds": 6.2515625,
+        "console_bytes": 14,
+        "compact_records": 0,
+        "compact_bytes_saved": 0
+      }
+    }
+  },
+  "improved": {
+    "schema": "juku-netdisk-benchmark-v1",
+    "variant": "v2-compact",
+    "cpu_hz": 1700000,
+    "baud": 19200,
+    "framing": "8O1",
+    "host_protocol": 2,
+    "boot_disk": {
+      "simulator_elapsed_seconds": 0.7284543390851468,
+      "read_requests": 32,
+      "records_transferred": 32,
+      "wire_bytes": 731,
+      "modeled_wire_seconds": 0.48280208333333335,
+      "compact_records": 30,
+      "compact_bytes_saved": 3813
+    },
+    "commands": {
+      "DIR": {
+        "simulator_elapsed_seconds": 0.913013817043975,
+        "read_requests": 3,
+        "records_transferred": 3,
+        "wire_bytes": 298,
+        "modeled_wire_seconds": 0.17672916666666666,
+        "console_bytes": 132,
+        "compact_records": 1,
+        "compact_bytes_saved": 128
+      },
+      "TYPE README.TXT": {
+        "simulator_elapsed_seconds": 13.531186418957077,
+        "read_requests": 71,
+        "records_transferred": 71,
+        "wire_bytes": 10082,
+        "modeled_wire_seconds": 5.918145833333334,
+        "console_bytes": 9185,
+        "compact_records": 0,
+        "compact_bytes_saved": 0
+      },
+      "RDBENCH": {
+        "simulator_elapsed_seconds": 1.6264433099422604,
+        "read_requests": 75,
+        "records_transferred": 75,
+        "wire_bytes": 10523,
+        "modeled_wire_seconds": 6.178802083333333,
+        "console_bytes": 14,
+        "compact_records": 1,
+        "compact_bytes_saved": 127
+      }
+    }
+  },
+  "legacy_fallback": {
+    "schema": "juku-netdisk-benchmark-v1",
+    "variant": "v2-legacy-fallback",
+    "cpu_hz": 1700000,
+    "baud": 19200,
+    "framing": "8O1",
+    "host_protocol": 1,
+    "boot_disk": {
+      "simulator_elapsed_seconds": 0.8358122130157426,
+      "read_requests": 32,
+      "records_transferred": 32,
+      "wire_bytes": 4544,
+      "modeled_wire_seconds": 2.6673333333333336,
+      "compact_records": 0,
+      "compact_bytes_saved": 0
+    },
+    "commands": {
+      "DIR": {
+        "simulator_elapsed_seconds": 0.9141099839471281,
+        "read_requests": 3,
+        "records_transferred": 3,
+        "wire_bytes": 426,
+        "modeled_wire_seconds": 0.25006249999999997,
+        "console_bytes": 132,
+        "compact_records": 0,
+        "compact_bytes_saved": 0
+      }
+    }
+  }
+}

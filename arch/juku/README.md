@@ -596,6 +596,51 @@ and recovered cleanly. This qualifies v14 and freezes speed optimization here:
 future changes need a functional, observability, or demonstrated reliability
 benefit rather than a marginal best-case timing gain.
 
+`juku-fastboot-v14-netdisk-v2.bin` is a separately named V14 payload with the
+compact NetDisk v2 BIOS; the frozen `juku-fastboot-v14.bin` remains byte-exact.
+The matching resident and volume are `juku-net-v2-system.bin` and
+`juku-net-v2.img`. The 5273-byte bundle has SHA-256
+`23fe0e156541717885d9fa76e9bd288724bdb633dfbcd8cf597e634d30a070a6`.
+The host appends `N2` to its existing `NR` handoff marker.
+The new BIOS then uses opcode 13h: ordinary records retain the exact v1 reply
+size, uniform records carry one byte, and directory records containing four
+deleted entries carry no data and expand to `E5` locally. Without `N2`, the
+same BIOS falls back to opcode 11h; old BIOS images ignore `N2` and remain
+compatible with the current server. Writes still use the proven synchronous
+opcode 12h path.
+
+The rejected alternative was a four-record read-ahead cache. The fixed
+B400h-CDFFh resident image leaves only the audited CF00h-CFFFh page before the
+monitor-owned D000h region, not the 512 bytes that design needs. NetDisk v2
+therefore uses no undocumented RAM and does not reduce the TPA.
+
+`make juku-netdisk-benchmark` runs V14 twice against the same files. It proves
+complete `DIR` and `TYPE README.TXT` transcripts, then runs `RDBENCH.COM`, a
+no-console sequential reader for `README.TXT`. At 19,200/8O1 with the 2 ms
+reply guard, the modeled initial 32-record directory scan falls from 2.667 to
+0.483 seconds (82%), and `DIR` from 0.250 to 0.177 seconds (29%). Full `TYPE`
+is byte-for-byte complete and unchanged at 5.918 seconds of disk wire time;
+the console is its dominant visible cost. `RDBENCH` changes from 6.252 to
+6.179 seconds because only its padding record compresses. Raw records never
+grow on the wire.
+
+Run the physical candidate without changing the ROM:
+
+```sh
+cd ~/fun/cpmish && make juku-fastboot-v14-netdisk-v2.bin \
+    juku-net-v2-system.bin juku-net-v2.img
+../8080-cosim/tools/janet_disk_server.py \
+    --fast-stage1 juku-fastboot-v14-netdisk-v2.bin \
+    --compact-stock-execute --fast-low-latency-guards --disk-baud 19200 \
+    --writable --timeout 86400 /dev/ttyUSB0 \
+    juku-net-v2-system.bin juku-net-v2.img
+```
+
+NetDisk protocol 2 is the server default; `--disk-protocol 1` explicitly
+forces the legacy marker/path for fallback qualification. Cosim boots the v2
+BIOS against that forced v1 host, reaches the prompt, and completes `DIR` with
+the original one-record wire counts.
+
 Stock frame tracing also rejects eager post-ACK sending. A normal one-record
 request contains 36 client frames after the request, including 26 scans of
 other stations. Sending the next fragment before the required directed poll

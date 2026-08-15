@@ -61,6 +61,9 @@ MEMADR         equ     FBI+20
 
 DKRD           equ     011h
 DKWR           equ     012h
+.ifdef NETWORKV2
+DKRC           equ     013h
+.endif
 
 .ifdef NETWORK
 USARTDATA      equ     008h
@@ -98,6 +101,9 @@ BOOT:
 .ifdef NETWORK
         sta     TYPEB
         sta     SEQUENCE
+.ifdef NETWORKV2
+        sta     NETV2
+.endif
         call    NETINIT
 .else
         sta     TYPEB
@@ -126,6 +132,11 @@ BOOT:
         lxi     h,VERMSG
         call    PRINTSTR
 .ifdef NETWORK
+.ifdef NETWORKV2
+        call    PRINT
+        db      'A: Janet 386K, B: native 784K',13,10
+        db      '19200, NetDisk v2',13,10,10,0
+.else
 .ifdef NETWORK19200
         call    PRINT
         db      'A: Janet 386K, B: native 784K',13,10
@@ -134,6 +145,7 @@ BOOT:
         call    PRINT
         db      'A: Janet 386K, B: native 784K',13,10,10,0
 .endif
+.endif
 .else
         call    PRINT
         db      'A:, B: - 386K floppy',13,10,10,0
@@ -141,9 +153,15 @@ BOOT:
         jmp     GOCPM
 
 VERMSG:
+.ifdef NETWORKV2
+        db      'CP/Mish 2.2 Juku NetDisk v2',13,10
+        db      'GPT-5.6 Sol, Arvutimuuseum',13,10
+        db      'Danila Sukharev',13,10,0
+.else
         db      'CP/Mish 2.2 Juku NETROM2',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
         db      'Danila Sukharev',13,10,0
+.endif
 
 ; Resident CCP is outside the TPA and remains valid, so warm boot does not
 ; depend on the system tracks of the currently inserted disk.
@@ -292,11 +310,22 @@ SETDMA:
         ret
 
 READ:
+.ifdef NETWORKV2
+        lda     NETV2
+        ora     a
+        jz      NETV2SINGLE
+        mvi     a,DKRC
+        jmp     NETRWDISK
+NETV2SINGLE:
+        mvi     a,DKRD
+        jmp     NETRWDISK
+.else
         mvi     a,DKRD
 .ifdef NETWORK
         jmp     NETRWDISK
 .else
         jmp     RWDISK
+.endif
 .endif
 
 WRITE:
@@ -387,6 +416,34 @@ NETSYNC:
         cpi     DKWR
         jz      NETCHECK
         lhld    MEMADR
+.ifdef NETWORKV2
+        lda     REQUEST
+        cpi     DKRC
+        jnz     NETREADRAW
+        mov     a,c
+        ora     a
+        jz      NETREADRAW
+        cpi     3
+        mvi     e,0e5h
+        jz      NETREADFILL
+        cpi     2
+        jnz     NETCHECK
+        call    NETRX
+        mov     e,a
+        xra     b
+        mov     b,a
+NETREADFILL:
+        mvi     c,0
+        mov     a,e
+        mvi     d,128
+NETFILL:
+        mov     m,a
+        inx     h
+        dcr     d
+        jnz     NETFILL
+        jmp     NETCHECK
+NETREADRAW:
+.endif
         mvi     d,128
 NETREAD:
         call    NETRX
@@ -467,6 +524,19 @@ NETREADY:
         call    NETRX
         cpi     'R'
         jnz     NETREADY
+.ifdef NETWORKV2
+        ; A v2 host appends N2 to NR.  With a legacy host these reads consume
+        ; its next repeated NR marker and fall back after about 20 ms.
+        call    NETRX
+        cpi     'N'
+        jnz     NETCAPDONE
+        call    NETRX
+        cpi     '2'
+        jnz     NETCAPDONE
+        mvi     a,0ffh
+        sta     NETV2
+NETCAPDONE:
+.endif
         ; NET_USART_INIT registered handlers 2, 3 and 9 through RomBios FF89.
         ; Restore those three service-vector slots to their pre-NetBios RET
         ; entries. In particular, service 9 runs from the normal frame path,
@@ -577,6 +647,9 @@ DPB1:   dw      40
 REQUEST: db     0
 .ifdef NETWORK
 SEQUENCE: db    0
+.ifdef NETWORKV2
+NETV2:   db     0
+.endif
 .endif
 
 ; These words must remain visible when a monitor call returns with the ROM

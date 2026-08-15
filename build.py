@@ -15,6 +15,7 @@ export(
         "juku-system.bin": "arch/juku+systemfile",
         "juku-net-system.bin": "arch/juku+systemfile-net",
         "juku-net-mode2-system.bin": "arch/juku+systemfile-net-mode2",
+        "juku-net-v2-system.bin": "arch/juku+systemfile-net-v2",
         "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
         "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-baudtest2-system.bin": "arch/juku+systemfile-net-baudtest2",
@@ -33,12 +34,15 @@ export(
         "juku-fastboot-v12.bin": "arch/juku+fastboot-v12-bin",
         "juku-fastboot-v13.bin": "arch/juku+fastboot-v13-bin",
         "juku-fastboot-v14.bin": "arch/juku+fastboot-v14-bin",
+        "juku-fastboot-v14-netdisk-v2.bin":
+            "arch/juku+fastboot-v14-netdisk-v2-bin",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
         "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",
         "juku-net-baudtest-ladder.img": "arch/juku+net-baudtest-ladder-volume",
         "juku-net-baudtest2.img": "arch/juku+net-baudtest2-volume",
         "juku-net-mode2.img": "arch/juku+net-mode2-volume",
+        "juku-net-v2.img": "arch/juku+net-v2-volume",
         "juku-net-mode2-soak.img": "arch/juku+net-mode2-soak-volume",
     },
 )

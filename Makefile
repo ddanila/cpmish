@@ -20,7 +20,8 @@ juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin \
 		juku-fastboot-v5.bin juku-fastboot-v6.bin juku-fastboot-v7.bin \
 		juku-fastboot-v8.bin juku-fastboot-v9.bin juku-fastboot-v10.bin \
 		juku-fastboot-v11.bin juku-fastboot-v12.bin juku-fastboot-v13.bin \
-		juku-fastboot-v14.bin juku.img
+		juku-fastboot-v14.bin juku-fastboot-v14-netdisk-v2.bin \
+		juku-net-v2-system.bin juku-net-v2.img juku.img
 	python3 arch/juku/net_cosim_check.py
 
 .PHONY: juku-fastboot-cosim-check
@@ -32,8 +33,15 @@ juku-fastboot-cosim-check: juku-fastboot-stage1.bin juku-fastboot-v2.bin \
 		juku-fastboot-v12.bin \
 		juku-fastboot-v13.bin \
 		juku-fastboot-v14.bin \
+		juku-fastboot-v14-netdisk-v2.bin \
 		juku-net-mode2-system.bin
 	python3 arch/juku/net_cosim_check.py --fastboot-only
+
+.PHONY: juku-netdisk-benchmark
+juku-netdisk-benchmark: juku-fastboot-v14.bin \
+		juku-fastboot-v14-netdisk-v2.bin juku-net-mode2-system.bin \
+		juku-net-mode2.img juku-net-v2-system.bin juku-net-v2.img
+	python3 arch/juku/net_cosim_check.py --netdisk-benchmark-only
 
 TARGETS = +all
 include build/ab.mk

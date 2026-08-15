@@ -27,6 +27,8 @@ ROM = COSIM / "roms" / "ekta37.bin"
 SYSTEM = ROOT / "juku-net-system.bin"
 MODE2_SYSTEM = ROOT / "juku-net-mode2-system.bin"
 MODE2_FLAT = ROOT / "juku-net-mode2.img"
+NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
+NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
 SMOKE_FLAT = ROOT / "juku-net-smoke.img"
 BAUDTEST_SYSTEM = ROOT / "juku-net-baudtest-system.bin"
@@ -51,6 +53,7 @@ FASTBOOT_V11 = ROOT / "juku-fastboot-v11.bin"
 FASTBOOT_V12 = ROOT / "juku-fastboot-v12.bin"
 FASTBOOT_V13 = ROOT / "juku-fastboot-v13.bin"
 FASTBOOT_V14 = ROOT / "juku-fastboot-v14.bin"
+FASTBOOT_V14_NETDISK_V2 = ROOT / "juku-fastboot-v14-netdisk-v2.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -507,7 +510,7 @@ def run_fastboot_disk_case(
                     version
                 ].read_bytes(),
                 MODE2_SYSTEM.read_bytes(),
-                stock_timeout=120, reply_timeout=3, verbose=False,
+                stock_timeout=120, reply_timeout=8, verbose=False,
                 configure_rate=False,
                 compact_stock_execute=(version in (
                     8, 9, 10, 11, 12, 13, 14,
@@ -590,6 +593,186 @@ def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
     raise TimeoutError(
         f"console did not emit {marker!r}; transcript={bytes(result)!r}"
     )
+
+
+def read_console_prompt(fd: int, timeout: float) -> bytes:
+    """Read through the final idle A> prompt, ignoring A> inside file text."""
+    import select
+
+    result = bytearray()
+    deadline = time.monotonic() + timeout
+    prompt_seen_at: float | None = None
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if ready:
+            try:
+                incoming = os.read(fd, 4096)
+            except OSError:
+                continue
+            result.extend(incoming)
+            if b"A>" in result:
+                prompt_seen_at = time.monotonic()
+        elif prompt_seen_at is not None and \
+                time.monotonic() - prompt_seen_at >= 0.5:
+            return bytes(result)
+    raise TimeoutError(f"console did not settle at A>; transcript={bytes(result)!r}")
+
+
+def run_netdisk_benchmark(
+    trace: Path, work: Path, *, netdisk_v2: bool,
+    host_protocol: int | None = None,
+    command_list: tuple[str, ...] = ("DIR", "TYPE README.TXT", "RDBENCH"),
+) -> dict[str, object]:
+    """Measure console-heavy and no-console commands plus their wire cost."""
+    if host_protocol is None:
+        host_protocol = 2 if netdisk_v2 else 1
+    label = "v2-legacy-fallback" if netdisk_v2 and host_protocol == 1 else \
+        ("v2-compact" if netdisk_v2 else "v1-record")
+    case = work / f"netdisk-benchmark-{label}"
+    case.mkdir()
+    system_path = NETDISK_V2_SYSTEM if netdisk_v2 else MODE2_SYSTEM
+    volume_path = NETDISK_V2_FLAT if netdisk_v2 else MODE2_FLAT
+    stage_path = FASTBOOT_V14_NETDISK_V2 if netdisk_v2 else FASTBOOT_V14
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_TRACE_BANK="0",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201|",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+    )
+    volume = bytearray(volume_path.read_bytes())
+    stats: dict[str, int] = {}
+    errors: list[BaseException] = []
+    commands: dict[str, dict[str, float | int]] = {}
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        try:
+            boot = serve_fast(
+                master, stage_path.read_bytes(), system_path.read_bytes(),
+                stock_timeout=120, reply_timeout=8, verbose=False,
+                configure_rate=False, compact_stock_execute=True,
+            )
+
+            def disk_worker() -> None:
+                try:
+                    serve_disk(
+                        master, volume, timeout=300, idle_timeout=None,
+                        verbose=False, stats=stats,
+                        protocol_version=host_protocol,
+                    )
+                except BaseException as error:
+                    errors.append(error)
+
+            worker = threading.Thread(target=disk_worker)
+            disk_started = time.monotonic()
+            worker.start()
+            initial = read_console_prompt(console_master, 120)
+            boot_elapsed = time.monotonic() - disk_started
+            require(b"CP/Mish 2.2 Juku" in initial,
+                    f"{label}: boot prompt missing")
+            boot_request_bytes = stats.get("request_wire_bytes", 0)
+            boot_reply_bytes = stats.get("reply_wire_bytes", 0)
+            boot_requests = stats.get("reads", 0)
+            boot_disk = {
+                "simulator_elapsed_seconds": boot_elapsed,
+                "read_requests": boot_requests,
+                "records_transferred": stats.get("read_records", 0),
+                "wire_bytes": boot_request_bytes + boot_reply_bytes,
+                "modeled_wire_seconds":
+                    (boot_request_bytes + boot_reply_bytes) * 11 / 19200
+                    + boot_requests * 0.002,
+                "compact_records": stats.get("compact_records", 0),
+                "compact_bytes_saved": stats.get("compact_bytes_saved", 0),
+            }
+            for command in command_list:
+                before = dict(stats)
+                started = time.monotonic()
+                os.write(console_master, command.encode("ascii") + b"\r")
+                transcript = read_console_prompt(console_master, 180)
+                elapsed = time.monotonic() - started
+                require(command.encode("ascii").split()[0] in transcript,
+                        f"{label}: {command} was not echoed")
+                if command == "TYPE README.TXT":
+                    require(
+                        b"See `third_party/dr/COPYING.md` for more" in transcript
+                        and b"information." in transcript,
+                        f"{label}: TYPE stopped before README.TXT EOF; "
+                        f"bytes={len(transcript)}, tail={transcript[-160:]!r}",
+                    )
+                request_bytes = stats.get("request_wire_bytes", 0) - \
+                    before.get("request_wire_bytes", 0)
+                reply_bytes = stats.get("reply_wire_bytes", 0) - \
+                    before.get("reply_wire_bytes", 0)
+                requests = stats.get("reads", 0) - before.get("reads", 0)
+                records = stats.get("read_records", 0) - \
+                    before.get("read_records", 0)
+                # 8O1 is 11 wire bits per character. Include the configured
+                # 2 ms half-duplex guard for each request.
+                wire_seconds = (request_bytes + reply_bytes) * 11 / 19200 + \
+                    requests * 0.002
+                commands[command] = {
+                    "simulator_elapsed_seconds": elapsed,
+                    "read_requests": requests,
+                    "records_transferred": records,
+                    "wire_bytes": request_bytes + reply_bytes,
+                    "modeled_wire_seconds": wire_seconds,
+                    "console_bytes": len(transcript),
+                    "compact_records": stats.get("compact_records", 0)
+                    - before.get("compact_records", 0),
+                    "compact_bytes_saved": stats.get("compact_bytes_saved", 0)
+                    - before.get("compact_bytes_saved", 0),
+                }
+                if command == "RDBENCH":
+                    require(records >= 70,
+                            f"{label}: RDBENCH did not read README.TXT: "
+                            f"{commands[command]}")
+            process.terminate()
+            process.wait(timeout=5)
+            os.close(master)
+            worker.join(timeout=3)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            try:
+                os.close(master)
+            except OSError:
+                pass
+            os.close(console_master)
+    require(boot["protocol_version"] == 14 and boot["retries"] == 0,
+            f"{label}: V14 bootstrap differs: {boot}")
+    require(all(isinstance(error, OSError) for error in errors),
+            f"{label}: disk server failed: {errors!r}")
+    result: dict[str, object] = {
+        "schema": "juku-netdisk-benchmark-v1",
+        "variant": label,
+        "cpu_hz": 1_700_000,
+        "baud": 19200,
+        "framing": "8O1",
+        "host_protocol": host_protocol,
+        "boot_disk": boot_disk,
+        "commands": commands,
+    }
+    (case / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(f"NETDISK {label}: PASS ({commands})")
+    return result
 
 
 def run_case(
@@ -1270,13 +1453,14 @@ def main() -> None:
     parser.add_argument("--baudtest-only", action="store_true")
     parser.add_argument("--keyboard-only", action="store_true")
     parser.add_argument("--fastboot-only", action="store_true")
+    parser.add_argument("--netdisk-benchmark-only", action="store_true")
     parser.add_argument("--game-disk", type=Path,
                         help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
     require(
         all(path.is_file() for path in (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
-            MODE2_SYSTEM, MODE2_FLAT,
+            MODE2_SYSTEM, MODE2_FLAT, NETDISK_V2_SYSTEM, NETDISK_V2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
@@ -1287,6 +1471,7 @@ def main() -> None:
             FASTBOOT_V12,
             FASTBOOT_V13,
             FASTBOOT_V14,
+            FASTBOOT_V14_NETDISK_V2,
         )),
         "build the normal, smoke, and baud-test network images first",
     )
@@ -1294,6 +1479,23 @@ def main() -> None:
         work = Path(name)
         trace = work / "trace"
         build_trace(trace)
+        if args.netdisk_benchmark_only:
+            baseline = run_netdisk_benchmark(trace, work, netdisk_v2=False)
+            improved = run_netdisk_benchmark(trace, work, netdisk_v2=True)
+            fallback = run_netdisk_benchmark(
+                trace, work, netdisk_v2=True, host_protocol=1,
+                command_list=("DIR",),
+            )
+            evidence = {
+                "schema": "juku-netdisk-comparison-v1",
+                "baseline": baseline,
+                "improved": improved,
+                "legacy_fallback": fallback,
+            }
+            output = ROOT / "juku-netdisk-benchmark.json"
+            output.write_text(json.dumps(evidence, indent=2) + "\n")
+            print(f"JUKU-NETDISK-BENCHMARK: PASS ({output})")
+            return
         if args.fastboot_only:
             for version in (
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,

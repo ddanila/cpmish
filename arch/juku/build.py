@@ -24,6 +24,11 @@ zmac(
     deps=["include/cpm.lib", "./bios.asm"],
 )
 zmac(
+    name="bios-net-v2",
+    src="./bios-net-v2.asm",
+    deps=["include/cpm.lib", "./bios.asm"],
+)
+zmac(
     name="diag",
     src="./diag.asm",
     deps=["third_party/juku-common/diag/memory.asm"],
@@ -73,6 +78,11 @@ zmac(
         "third_party/juku-common/music/smoke-player.asm",
         "third_party/juku-common/music/smoke-table.asm",
     ],
+    relocatable=False,
+)
+zmac(
+    name="readbench",
+    src="./readbench.asm",
     relocatable=False,
 )
 zmac(
@@ -322,6 +332,15 @@ ld80(
         BBASE: [".+bios-net-mode2"],
     },
 )
+ld80(
+    name="memory-net-v2",
+    address=CBASE,
+    objs={
+        CBASE: ["third_party/dr/ccp+ccp-juku"],
+        FBASE: ["third_party/dr/bdos"],
+        BBASE: [".+bios-net-v2"],
+    },
+)
 
 # Juku's preserved SYSGEN files reserve 512 bytes before the 52 resident
 # 128-byte records. Keep the complete 10 KiB boot-track region so the result
@@ -352,6 +371,15 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETMODE2SYSTEM",
+)
+simplerule(
+    name="systemfile-net-v2",
+    ins=[".+memory-net-v2"],
+    outs=["=juku-net-v2-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETV2SYSTEM",
 )
 simplerule(
     name="fastboot-v6-bin",
@@ -489,6 +517,21 @@ simplerule(
     label="JUKUFASTBOOTV14",
 )
 simplerule(
+    name="fastboot-v14-netdisk-v2-bin",
+    ins=[
+        ".+fastboot-v14-core",
+        ".+fastboot-v14-extension",
+        ".+systemfile-net-v2",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v14-netdisk-v2.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV14NETDISKV2",
+)
+simplerule(
     name="systemfile-net-smoke",
     ins=[".+memory-net"],
     outs=["=juku-net-smoke-system.bin"],
@@ -543,6 +586,23 @@ flatdiskimage = diskimage(
     },
 )
 
+net_v2_diskimage = diskimage(
+    name="net-v2-diskimage",
+    format="juku386",
+    bootfile=".+systemfile-net-v2",
+    size=409600,
+    map={
+        "readme.txt": readme,
+        "asm.com": "cpmtools+asm",
+        "copy.com": "cpmtools+copy",
+        "dump.com": "cpmtools+dump",
+        "diag.com": ".+diag",
+        "rdbench.com": ".+readbench",
+        "stat.com": "cpmtools+stat",
+        "submit.com": "cpmtools+submit",
+    },
+)
+
 net_mode2_diskimage = diskimage(
     name="net-mode2-diskimage",
     format="juku386",
@@ -554,6 +614,7 @@ net_mode2_diskimage = diskimage(
         "copy.com": "cpmtools+copy",
         "dump.com": "cpmtools+dump",
         "diag.com": ".+diag",
+        "rdbench.com": ".+readbench",
         "stat.com": "cpmtools+stat",
         "submit.com": "cpmtools+submit",
     },
@@ -648,6 +709,13 @@ simplerule(
     outs=["=juku-net-mode2.img"],
     commands=["cp {ins[0]} {outs[0]}"],
     label="JUKUNETMODE2VOLUME",
+)
+simplerule(
+    name="net-v2-volume",
+    ins=[net_v2_diskimage],
+    outs=["=juku-net-v2.img"],
+    commands=["cp {ins[0]} {outs[0]}"],
+    label="JUKUNETV2VOLUME",
 )
 simplerule(
     name="net-mode2-soak-volume",
