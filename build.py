@@ -20,6 +20,8 @@ export(
         "juku-net-v2-system.bin": "arch/juku+systemfile-net-v2",
         "juku-net-v2-ramout-system.bin":
             "arch/juku+systemfile-net-v2-ramout",
+        "juku-net-v2-rambio-system.bin":
+            "arch/juku+systemfile-net-v2-rambio",
         "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
         "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-baudtest2-system.bin": "arch/juku+systemfile-net-baudtest2",
@@ -40,6 +42,8 @@ export(
         "juku-fastboot-v14.bin": "arch/juku+fastboot-v14-bin",
         "juku-fastboot-v14-netdisk-v2.bin":
             "arch/juku+fastboot-v14-netdisk-v2-bin",
+        "juku-fastboot-v15-rambio.bin":
+            "arch/juku+fastboot-v15-rambio-bin",
         "juku-net-smoke.img": "arch/juku+net-smoke-volume",
         "juku-net-baudtest-9600.img": "arch/juku+net-baudtest-9600-volume",
         "juku-net-baudtest-8n1.img": "arch/juku+net-baudtest-8n1-volume",

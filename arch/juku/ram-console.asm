@@ -1,9 +1,8 @@
 ; Minimal 40x24 bitmap console for the separately relocated 51K RAM BIOS.
 ;
-; Output is BIOS-owned, but input deliberately remains on the proven RomBios
-; path.  Code executes below D800h.  Framebuffer reads require memory mode 3;
-; every operation therefore excludes interrupts, selects all-RAM, and restores
-; the normal mode-1 ROM window before returning.
+; Code executes below D800h. Framebuffer reads require memory mode 3. Stage 1
+; brackets each operation and restores the ROM window; the fully RAM-owned
+; BIOS keeps mode 3 selected.
 
 MODEPORT        equ     006h
 VRAM            equ     0d800h
@@ -188,10 +187,12 @@ RAMVIDEO:
         ret
 
 RAMNORMAL:
+.ifndef RAMKEYBOARD
         in      MODEPORT
         ani     0fch
         ori     1
         out     MODEPORT
+.endif
         ei
         ret
 

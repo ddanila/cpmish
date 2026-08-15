@@ -10,6 +10,11 @@
         cseg
 label   BBASE
         public  VERMSG
+.ifdef RAMKEYBOARD
+        extrn   RKINIT
+        extrn   RKSTAT
+        extrn   RKIN
+.endif
 
 ; Public CP/M 2.2 BIOS jump table.
         jmp     BOOT
@@ -82,18 +87,21 @@ BOOT:
 .ifndef BROKEN_NET_HANDOFF
         ; NetBios executes the resident image with its USART requests still
         ; installed and may have IR2 pending. Close that handoff window before
-        ; touching the CP/M stack or workspace; NETINIT later enables only IR5.
+        ; touching the CP/M stack or workspace; NETINIT later establishes the
+        ; selected RomBios-input or fully polled RAM-input interrupt policy.
         di
 .endif
 .endif
         lxi     sp,0100h
 
+.ifndef RAMKEYBOARD
         ; Publish the BDOS address through the RomBios-owned pointer.
         lhld    BDOSADDR
         lxi     d,FBASE+6
         mov     m,e
         inx     h
         mov     m,d
+.endif
 
         ; Configure the 80-track system volume.  Network B: uses the original
         ; two-sided 160-track geometry through its own DPH/DPB below.
@@ -124,6 +132,7 @@ BOOT:
         sta     RATE
 
 .ifdef RAMCONSOLE
+.ifndef RAMKEYBOARD
         ; RomBios still owns the frame/keyboard interrupt in Stage 1.  Hide
         ; its independently tracked cursor before the RAM renderer takes over
         ; or the ISR will keep painting a solid block at its stale position.
@@ -133,7 +142,11 @@ BOOT:
         mvi     a,'4'
         call    ROMCALL
         dw      WRCHR
+.endif
         call    RAMCONINIT
+.endif
+.ifdef RAMKEYBOARD
+        call    RKINIT
 .endif
 
         xra     a
@@ -168,6 +181,12 @@ BOOT:
         jmp     GOCPM
 
 VERMSG:
+.ifdef RAMKEYBOARD
+        db      'CP/Mish 2.2 Juku RAM BIOS',13,10
+        db      'NetDisk v2, polled console',13,10
+        db      'GPT-5.6 Sol, Arvutimuuseum',13,10
+        db      'Danila Sukharev',13,10,0
+.else
 .ifdef RAMCONSOLE
         db      'CP/Mish 2.2 Juku RAM output',13,10
         db      'NetDisk v2, 51K experiment',13,10
@@ -182,6 +201,7 @@ VERMSG:
         db      'CP/Mish 2.2 Juku NETROM2',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
         db      'Danila Sukharev',13,10,0
+.endif
 .endif
 .endif
 
@@ -205,9 +225,11 @@ GOCPM:
         lxi     b,0080h
         call    SETDMA
 
+.ifndef RAMKEYBOARD
         ; Tell the monitor that CP/M owns the console path.
         lhld    CONCW
         mvi     m,0
+.endif
 
         lda     CDISK
         mov     c,a
@@ -242,13 +264,21 @@ FUNCTION:
         ret
 
 CONST:
+.ifdef RAMKEYBOARD
+        call    RKSTAT
+.else
         call    ROMCALL
         dw      CONSTA
+.endif
         ret
 
 CONIN:
+.ifdef RAMKEYBOARD
+        call    RKIN
+.else
         call    ROMCALL
         dw      RDCHR
+.endif
         ret
 
 CONOUT:
@@ -263,8 +293,12 @@ CONOUT:
 
 LIST:
         mov     a,c
+.ifdef RAMKEYBOARD
+        call    RAMCONOUT
+.else
         call    ROMCALL
         dw      PRINTCH
+.endif
         ret
 
 EMPTY:
@@ -492,7 +526,11 @@ NETCHECK:
 NETDONE:
 .ifndef BROKEN_NET_HANDOFF
         push    psw
+.ifdef RAMKEYBOARD
+        mvi     a,0ffh
+.else
         mvi     a,0dfh
+.endif
         out     PICMASK
         sta     PICSHADOW
         ei
@@ -576,9 +614,16 @@ NETCAPDONE:
         sta     0d773h
         sta     0d777h
         sta     0d78fh
+.ifdef RAMKEYBOARD
+        ; The RAM BIOS polls the matrix and needs no firmware IRQ service.
+        ; Mask every PIC input while retaining a coherent shadow for any
+        ; subsequently inspected RomBios state.
+        mvi     a,0ffh
+.else
         ; Leave the monitor's D79F dispatcher and IR5 frame/keyboard service
         ; untouched, exactly as the normal EKDOS console path expects.
         mvi     a,0dfh
+.endif
         out     PICMASK
         sta     PICSHADOW
         ei

@@ -30,6 +30,7 @@ BROKEN_MODE2_SYSTEM = ROOT / "juku-net-mode2-broken-system.bin"
 MODE2_FLAT = ROOT / "juku-net-mode2.img"
 NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
 RAMOUT_SYSTEM = ROOT / "juku-net-v2-ramout-system.bin"
+RAMBIOS_SYSTEM = ROOT / "juku-net-v2-rambio-system.bin"
 RAMOUT_FONT = ROOT / "arch" / "juku" / "ram-console-font.asm"
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
@@ -57,6 +58,7 @@ FASTBOOT_V12 = ROOT / "juku-fastboot-v12.bin"
 FASTBOOT_V13 = ROOT / "juku-fastboot-v13.bin"
 FASTBOOT_V14 = ROOT / "juku-fastboot-v14.bin"
 FASTBOOT_V14_NETDISK_V2 = ROOT / "juku-fastboot-v14-netdisk-v2.bin"
+FASTBOOT_V15_RAMBIOS = ROOT / "juku-fastboot-v15-rambio.bin"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -128,7 +130,7 @@ def run_fastboot_case(
         JUKU_KEYS="TN0201",
         JUKU_KEY_HOLD_FRAMES="6",
         JUKU_KEY_GAP_FRAMES="8",
-        JUKU_STOP_PC="0xCA00",
+        JUKU_STOP_PC="0xC600" if version == 15 else "0xCA00",
         JUKU_CHECKPOINT_PREFIX=str(checkpoint),
     )
     if rx_irq_delay:
@@ -139,7 +141,7 @@ def run_fastboot_case(
             "rx_irq_delay_once_after:900:2000"
 
     def inject(sequence: int, attempt: int, packet: bytes) -> bytes:
-        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
             if not faults:
                 return packet
             if attempt == 0:
@@ -167,7 +169,7 @@ def run_fastboot_case(
         sequence: int, attempt: int, _reply: tuple[int, int, int],
     ) -> bool:
         nonlocal lost_reply
-        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
             # The extension repeats its success frame three times. Lose the
             # first copy and prove that the host accepts a later copy without
             # needlessly retransmitting a stream to a target already in CP/M.
@@ -195,12 +197,12 @@ def run_fastboot_case(
         # from the first V12 header. The next zero/A5/3A probe must release
         # the overlap-safe core parser without sending any extension body.
         return packet[:1] \
-            if version in (12, 13, 14) and probe == 0 else packet
+            if version in (12, 13, 14, 15) and probe == 0 else packet
 
     def inject_stream_header(
         _attempt: int, probe: int, packet: bytes,
     ) -> bytes:
-        return packet[:1] if version in (13, 14) and probe == 0 else packet
+        return packet[:1] if version in (13, 14, 15) and probe == 0 else packet
 
     def filter_rate_probe(rate_flag: int, packet: bytes) -> bytes:
         if force_rate_fallback and rate_flag == 1:
@@ -232,11 +234,12 @@ def run_fastboot_case(
                     12: FASTBOOT_V12,
                     13: FASTBOOT_V13,
                     14: FASTBOOT_V14,
+                    15: FASTBOOT_V15_RAMBIOS,
                 }[version].read_bytes(),
-                MODE2_SYSTEM.read_bytes(),
+                (RAMBIOS_SYSTEM if version == 15 else MODE2_SYSTEM).read_bytes(),
                 stock_timeout=120,
                 reply_timeout=0.75 if version == 3 else 3,
-                verbose=False,
+                verbose=os.environ.get("JUKU_COSIM_VERBOSE") == "1",
                 configure_rate=False, block_filter=inject,
                 reply_filter=receive_reply,
                 extension_filter=inject_extension,
@@ -244,7 +247,7 @@ def run_fastboot_case(
                 stream_header_filter=inject_stream_header,
                 rate_probe_filter=filter_rate_probe,
                 compact_stock_execute=(version in (
-                    8, 9, 10, 11, 12, 13, 14,
+                    8, 9, 10, 11, 12, 13, 14, 15,
                 )),
                 low_latency_guards=low_latency_guards,
             )
@@ -263,20 +266,28 @@ def run_fastboot_case(
             f"fastboot faults={faults}: cosim exited {process.returncode}")
     state = parse_state(checkpoint.with_suffix(".state"))
     ram = checkpoint.with_suffix(".ram").read_bytes()
-    expected = MODE2_SYSTEM.read_bytes()[0x0200:0x1C00]
-    require(state.get("pc") == "CA00", "fastboot did not reach CP/M entry")
+    if version == 15:
+        expected = RAMBIOS_SYSTEM.read_bytes()[0x0200:]
+        expected_start = 0xB000
+        expected_pc = "C600"
+    else:
+        expected = MODE2_SYSTEM.read_bytes()[0x0200:0x1C00]
+        expected_start = 0xB400
+        expected_pc = "CA00"
+    require(state.get("pc") == expected_pc,
+            "fastboot did not reach CP/M entry")
     require(state.get("port_18", "").split(",", 1)[0] == "last:04",
             "fastboot did not select D57 count 4")
     require(state.get("port_1B", "").split(",", 1)[0] == "last:15",
             "fastboot did not select D57 mode 2")
-    require(ram[0xB400:0xCE00] == expected,
+    require(ram[expected_start:expected_start + len(expected)] == expected,
             "fastboot installed system is not byte-exact")
     if rx_irq_delay:
         require(
             state.get("usart_rx_irq_delay_once_fired") == "1",
             "requested USART Rx IRQ delay did not fire",
         )
-    if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+    if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
         expected_artifact = {
             3: 384,
             4: 512,
@@ -290,6 +301,7 @@ def run_fastboot_case(
             12: 5570,
             13: 5582,
             14: 5229,
+            15: 6249,
         }[version]
         expected_extension = {
             4: 384,
@@ -301,6 +313,7 @@ def run_fastboot_case(
             12: 608,
             13: 620,
             14: 267,
+            15: 267,
         }.get(version, 256)
         require(
             result["stage_bytes"] == 128
@@ -313,7 +326,7 @@ def run_fastboot_case(
                 f"fastboot stage grew to {result['stage_bytes']} bytes")
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
-    if version in (8, 9, 10, 11, 12, 13, 14):
+    if version in (8, 9, 10, 11, 12, 13, 14, 15):
         require(
             result["stock_sent_frames"] ==
             14 + 2 * result["stock_ack_09"]
@@ -323,7 +336,7 @@ def run_fastboot_case(
         )
     if low_latency_guards:
         require(
-            version in (9, 10, 11, 12, 13, 14)
+            version in (9, 10, 11, 12, 13, 14, 15)
             and result["low_latency_guards"] == 1
             and result["turnaround_guard_ms"] == 20
             and result["stock_handoff"] == "tcdrain"
@@ -334,11 +347,11 @@ def run_fastboot_case(
     if faults:
         expected_retries = 2 \
             if version in (
-                3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+                3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
             ) else 3
         require(result["retries"] == expected_retries,
                 f"corruption/loss retry count is {result['retries']}")
-        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
             require(result["extension_retries"] == 1,
                     f"corrupt v{version} extension was not retried once")
     else:
@@ -349,22 +362,22 @@ def run_fastboot_case(
             f"clean fastboot retry count is {result['retries']}, expected "
             f"{expected_clean_retries}",
         )
-        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
             require(result["extension_retries"] == 0,
                     f"clean v{version} extension unexpectedly retried")
-    if version in (11, 12, 13, 14):
+    if version in (11, 12, 13, 14, 15):
         expected_header_acks = 2 if faults else 1
         require(
             result["extension_header_acks"] == expected_header_acks,
             f"v{version} core-header ACK count differs: {result}",
         )
-        if version in (12, 13, 14):
+        if version in (12, 13, 14, 15):
             require(
                 result["extension_header_probes"] == 2 * expected_header_acks,
                 f"v{version} partial extension-header recovery changed: "
                 f"{result}",
             )
-    if version in (13, 14):
+    if version in (13, 14, 15):
         expected_stream_acks = 2 \
             if faults or (rx_irq_delay and version == 13) else 1
         expected_stream_probes = 2 * expected_stream_acks
@@ -389,21 +402,22 @@ def run_fastboot_case(
                 "probe-ack-or-final-ready-not-received",
                 f"v4 fallback leg is {result['rate_failure_stage']}",
             )
-    if version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+    if version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
         require(result["transfer_baud"] == 19200,
                 f"v{version} transfer baud is {result['transfer_baud']}")
         require(result["transfer_framing"] == "8N1",
                 f"v{version} framing is {result['transfer_framing']}")
         expected_mode = "4E" if version in (
-            7, 8, 9, 10, 11, 12, 13, 14,
+            7, 8, 9, 10, 11, 12, 13, 14, 15,
         ) else "5E"
         require(state.get("usart_mode") == expected_mode,
                 f"v{version} handoff USART mode is not {expected_mode}")
         log = (case / "stderr.txt").read_text()
         require("x16 mode=4E" in log,
                 f"v{version} did not exercise 19200/8N1 in the USART model")
-    if version in (6, 7, 8, 9, 10, 11, 12, 13, 14):
-        require(result["stream_bytes"] == 4826,
+    if version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
+        expected_stream = 5846 if version == 15 else 4826
+        require(result["stream_bytes"] == expected_stream,
                 f"v{version} compressed stream is "
                 f"{result['stream_bytes']} bytes")
     timing_detail = ""
@@ -443,8 +457,8 @@ def run_fastboot_case(
             timing_detail += f", modeled-v8-gain={v8_gain_ms:.0f}ms"
     bulk_detail = (
         f"1x{result['stream_bytes']} "
-        f"{'ZX0 ' if version in (6, 7, 8, 9, 10, 11, 12, 13, 14) else ''}stream"
-        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+        f"{'ZX0 ' if version in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15) else ''}stream"
+        if version in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
         else f"{result['blocks']}x512"
     )
     rate_detail = f"rate={result['transfer_baud']}, " \
@@ -466,7 +480,7 @@ def run_fastboot_disk_case(
     trace: Path, work: Path, version: int, *, low_latency_guards: bool = False,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
-    require(version in (7, 8, 9, 10, 11, 12, 13, 14),
+    require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
             f"unsupported compact fastboot v{version}")
     case = work / (
         f"fastboot-v{version}-network-dir"
@@ -478,6 +492,14 @@ def run_fastboot_disk_case(
     console_master, console_slave = pty.openpty()
     tty.setraw(console_slave)
     environment = os.environ.copy()
+    if version == 15:
+        resident = RAMBIOS_SYSTEM.read_bytes()[512:]
+        conout_vector = 0xC60C - 0xB000
+        require(resident[conout_vector] == 0xC3,
+                "V15 RAM BIOS CONOUT vector is not a JMP")
+        conout_pc = int.from_bytes(
+            resident[conout_vector + 1:conout_vector + 3], "little",
+        )
     environment.update(
         JUKU_USART_PTY=os.ttyname(slave),
         JUKU_CONSOLE_PTY=os.ttyname(console_slave),
@@ -485,14 +507,21 @@ def run_fastboot_disk_case(
         JUKU_USART_BYTE_CYCLES="2300",
         JUKU_USART_PIT_CLOCK="1",
         JUKU_USART_PIT_CPU_HZ="1700000",
-        JUKU_TRACE_BANK="0",
+        JUKU_TRACE_BANK="1" if version == 15 else "0",
         JUKU_DISABLE_SETTLE="1",
-        JUKU_KEYS="TN0201|",
+        JUKU_KEYS="TN0201" if version == 15 else "TN0201|",
         JUKU_KEY_HOLD_FRAMES="6",
         JUKU_KEY_GAP_FRAMES="8",
         JUKU_CHECKPOINT_PREFIX=str(case / "final"),
     )
-    volume = bytearray(MODE2_FLAT.read_bytes())
+    if version == 15:
+        environment.update(
+            JUKU_CONSOLE_OUT_PC=f"0x{conout_pc:04X}",
+            JUKU_CONSOLE_OUT_REGISTER="C",
+        )
+    volume = bytearray(
+        (NETDISK_V2_FLAT if version == 15 else MODE2_FLAT).read_bytes(),
+    )
     stats: dict[str, int] = {}
     errors: list[BaseException] = []
     with (case / "stdout.txt").open("w") as stdout, \
@@ -509,14 +538,14 @@ def run_fastboot_disk_case(
                 {7: FASTBOOT_V7, 8: FASTBOOT_V8, 9: FASTBOOT_V9,
                  10: FASTBOOT_V10, 11: FASTBOOT_V11,
                  12: FASTBOOT_V12, 13: FASTBOOT_V13,
-                 14: FASTBOOT_V14}[
+                 14: FASTBOOT_V14, 15: FASTBOOT_V15_RAMBIOS}[
                     version
                 ].read_bytes(),
-                MODE2_SYSTEM.read_bytes(),
+                (RAMBIOS_SYSTEM if version == 15 else MODE2_SYSTEM).read_bytes(),
                 stock_timeout=120, reply_timeout=8, verbose=False,
                 configure_rate=False,
                 compact_stock_execute=(version in (
-                    8, 9, 10, 11, 12, 13, 14,
+                    8, 9, 10, 11, 12, 13, 14, 15,
                 )),
                 low_latency_guards=low_latency_guards,
             )
@@ -535,6 +564,7 @@ def run_fastboot_disk_case(
             first = read_console_until(console_master, b"A>", 120)
             os.write(console_master, b"DIR\r")
             second = read_console_until(console_master, b"A>", 120)
+            time.sleep(0.1)
             process.terminate()
             process.wait(timeout=5)
             os.close(master)
@@ -561,18 +591,38 @@ def run_fastboot_disk_case(
     require(all(isinstance(error, OSError) for error in errors),
             f"fastboot v{version} disk server failed: {errors!r}")
     state = parse_state((case / "final.state"))
-    require(state.get("usart_mode") == "5E",
-            f"CP/M BIOS did not restore 19200/8O1 after v{version} handoff")
     final_ram = (case / "final.ram").read_bytes()
     require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
             f"fastboot v{version} did not preserve RomBios dispatcher")
     log = (case / "stderr.txt").read_text()
-    require("x16 mode=4E" in log and "x16 mode=5E" in log,
-            f"v{version} did not exercise its 8N1-to-BIOS-8O1 transition")
+    if version == 15:
+        require(state.get("mode") == "3" and state.get("pic_mask") == "FF",
+                "V15 RAM BIOS did not retain all-RAM mode with IRQs masked")
+        require(state.get("usart_mode") == "5E",
+                "V15 RAM BIOS did not select its 19200/8O1 disk framing")
+        require("x16 mode=4E" in log and "x16 mode=5E" in log,
+                "V15 did not exercise its 8N1-to-BIOS-8O1 transition")
+        require("[BANK] mode 1 -> 3" in log and
+                "[BANK] mode 3 -> 1" not in log.split(
+                    "[BANK] mode 1 -> 3", 1,
+                )[1], "V15 returned to a firmware ROM view after takeover")
+        require(all(final_ram[address] == 0xC9
+                    for address in (0xD773, 0xD777, 0xD78F)),
+                "V15 RAM BIOS left a NetBios service vector installed")
+        vram = final_ram[0xD800:0xD800 + 9600]
+        require(vram == render_ram_console(first + second),
+                "V15 framebuffer differs from its console transcript")
+        bios_detail = "RAM BIOS 8O1/all-RAM"
+    else:
+        require(state.get("usart_mode") == "5E",
+                f"CP/M BIOS did not restore 19200/8O1 after v{version} handoff")
+        require("x16 mode=4E" in log and "x16 mode=5E" in log,
+                f"v{version} did not exercise its 8N1-to-BIOS-8O1 transition")
+        bios_detail = "BIOS 8O1"
     print(
         f"FASTBOOT V{version} NETWORK DIR"
         f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
-        f"(reads={stats['reads']}, retries={stats['retries']}, BIOS 8O1)"
+        f"(reads={stats['reads']}, retries={stats['retries']}, {bios_detail})"
     )
 
 
@@ -1262,11 +1312,20 @@ def run_broken_handoff_case(trace: Path, work: Path) -> None:
     )
 
 
-def run_ram_output_case(trace: Path, work: Path) -> None:
-    """Boot relocated RAM output while retaining RomBios matrix input."""
-    case = work / "ram-output"
+def run_ram_output_case(
+    trace: Path, work: Path, *, ram_keyboard: bool = False,
+) -> None:
+    """Boot relocated RAM output with RomBios or RAM-owned matrix input."""
+    case = work / ("ram-bios" if ram_keyboard else "ram-output")
     case.mkdir()
-    resident = RAMOUT_SYSTEM.read_bytes()[512:512 + 7680]
+    system_source = RAMBIOS_SYSTEM if ram_keyboard else RAMOUT_SYSTEM
+    container = system_source.read_bytes()
+    resident = container[512:] if ram_keyboard else container[512:512 + 7680]
+    if ram_keyboard:
+        require(container[:8] == b"JUKURM1\x1a" and
+                container[8:12] == bytes.fromhex("00 b0 00 c6") and
+                len(resident) == 0x2080,
+                "RAM BIOS must occupy exactly B000h..D07Fh")
     conout_vector = 0xC60C - 0xB000
     require(resident[conout_vector] == 0xC3,
             "RAM output BIOS CONOUT vector is not a JMP")
@@ -1313,7 +1372,7 @@ def run_ram_output_case(trace: Path, work: Path) -> None:
         os.close(console_slave)
         try:
             boot = serve_boot(
-                master, RAMOUT_SYSTEM.read_bytes(), timeout=120,
+                master, container, timeout=120,
                 verbose=False,
             )
 
@@ -1343,23 +1402,37 @@ def run_ram_output_case(trace: Path, work: Path) -> None:
                 worker.join(timeout=3)
             os.close(console_master)
 
-    require(boot["image_bytes"] == 7808,
-            f"RAM output staging size changed: {boot['image_bytes']}")
+    expected_boot_bytes = 128 + len(resident)
+    require(boot["image_bytes"] == expected_boot_bytes,
+            f"RAM staging size changed: {boot['image_bytes']}, expected "
+            f"{expected_boot_bytes}")
     require(b"A>" in first and b"DIR" in second,
             f"RAM output console transcript is incomplete: {first + second!r}")
     require(stats.get("reads", 0) >= 34,
-            f"RAM output DIR issued too few reads: {stats}")
+            f"RAM output DIR issued too few reads: {stats}; "
+            f"transcript={first + second!r}")
     require(all(isinstance(error, OSError) for error in disk_error),
             f"RAM output disk server failed: {disk_error!r}")
     log = (case / "stderr.txt").read_text()
-    require("[BANK] mode 1 -> 3" in log and "[BANK] mode 3 -> 1" in log,
-            "RAM output did not bracket framebuffer access with mode 3/1")
+    require("[BANK] mode 1 -> 3" in log,
+            "RAM output never selected all-RAM mode 3")
     final_ram = (case / "final.ram").read_bytes()
     require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
             "RAM output modified the RomBios dispatcher")
     require(all(final_ram[address] == 0xC9
                 for address in (0xD773, 0xD777, 0xD78F)),
             "RAM output left a NetBios service vector installed")
+    state = parse_state(case / "final.state")
+    if ram_keyboard:
+        require(state.get("mode") == "3" and state.get("pic_mask") == "FF",
+                "RAM BIOS did not retain all-RAM mode with every IRQ masked: "
+                f"mode={state.get('mode')} mask={state.get('pic_mask')}")
+        require("[BANK] mode 3 -> 1" not in log.split(
+            "[BANK] mode 1 -> 3", 1,
+        )[1], "RAM BIOS returned to a firmware ROM view after takeover")
+    else:
+        require(state.get("mode") == "1" and "[BANK] mode 3 -> 1" in log,
+                "RAM-output Stage 1 did not restore the RomBios view")
     vram = final_ram[0xD800:0xD800 + 9600]
     digest = hashlib.sha256(vram).hexdigest()
     expected_vram = render_ram_console(first + second)
@@ -1375,8 +1448,9 @@ def run_ram_output_case(trace: Path, work: Path) -> None:
             f"{[(i, vram[i], expected_vram[i]) for i in mismatches[:12]]}, "
             f"transcript={(first + second)!r}")
     print(
-        "51K staged RAM output: PASS "
-        f"(RomBios keyboard DIR; reads={stats.get('reads', 0)}; "
+        f"51K staged {'RAM BIOS' if ram_keyboard else 'RAM output'}: PASS "
+        f"({'polled RAM' if ram_keyboard else 'RomBios'} keyboard DIR; "
+        f"reads={stats.get('reads', 0)}; "
         f"VRAM={digest[:12]})"
     )
 
@@ -1732,17 +1806,21 @@ def main() -> None:
     parser.add_argument("--baudtest-only", action="store_true")
     parser.add_argument("--keyboard-only", action="store_true")
     parser.add_argument("--fastboot-only", action="store_true")
+    parser.add_argument("--fastboot-v15-only", action="store_true")
     parser.add_argument("--netdisk-benchmark-only", action="store_true")
     parser.add_argument("--ram-output-only", action="store_true")
+    parser.add_argument("--ram-bios-only", action="store_true")
     parser.add_argument("--game-disk", type=Path,
                         help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
     required_images = (
-        (RAMOUT_SYSTEM, NETDISK_V2_FLAT)
-        if args.ram_output_only else (
+        ((RAMBIOS_SYSTEM if args.ram_bios_only else RAMOUT_SYSTEM),
+         NETDISK_V2_FLAT)
+        if args.ram_output_only or args.ram_bios_only else (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
             MODE2_SYSTEM, BROKEN_MODE2_SYSTEM, MODE2_FLAT,
-            NETDISK_V2_SYSTEM, RAMOUT_SYSTEM, NETDISK_V2_FLAT,
+            NETDISK_V2_SYSTEM, RAMOUT_SYSTEM, RAMBIOS_SYSTEM,
+            NETDISK_V2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
@@ -1754,6 +1832,7 @@ def main() -> None:
             FASTBOOT_V13,
             FASTBOOT_V14,
             FASTBOOT_V14_NETDISK_V2,
+            FASTBOOT_V15_RAMBIOS,
         )
     )
     require(
@@ -1781,9 +1860,18 @@ def main() -> None:
             output.write_text(json.dumps(evidence, indent=2) + "\n")
             print(f"JUKU-NETDISK-BENCHMARK: PASS ({output})")
             return
+        if args.fastboot_v15_only:
+            run_fastboot_case(trace, work, version=15, faults=False)
+            run_fastboot_case(trace, work, version=15, faults=True)
+            run_fastboot_case(
+                trace, work, version=15, faults=False, rx_irq_delay=True,
+            )
+            run_fastboot_disk_case(trace, work, 15)
+            print("JUKU-FASTBOOT-V15-COSIM-CHECK: PASS")
+            return
         if args.fastboot_only:
             for version in (
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
             ):
                 run_fastboot_case(trace, work, version=version, faults=False)
                 run_fastboot_case(trace, work, version=version, faults=True)
@@ -1795,6 +1883,7 @@ def main() -> None:
             run_fastboot_disk_case(trace, work, 12)
             run_fastboot_disk_case(trace, work, 13)
             run_fastboot_disk_case(trace, work, 14)
+            run_fastboot_disk_case(trace, work, 15)
             run_fastboot_case(
                 trace, work, version=9, faults=False,
                 low_latency_guards=True,
@@ -1883,6 +1972,9 @@ def main() -> None:
                 trace, work, version=14, faults=False, rx_irq_delay=True,
             )
             run_fastboot_case(
+                trace, work, version=15, faults=False, rx_irq_delay=True,
+            )
+            run_fastboot_case(
                 trace, work, version=4, faults=False,
                 force_rate_fallback=True,
             )
@@ -1896,6 +1988,9 @@ def main() -> None:
             return
         if args.ram_output_only:
             run_ram_output_case(trace, work)
+            return
+        if args.ram_bios_only:
+            run_ram_output_case(trace, work, ram_keyboard=True)
             return
         if args.baudtest_only:
             run_baudtest_case(
@@ -1945,6 +2040,7 @@ def main() -> None:
         run_mode2_keyboard_case(trace, work)
         run_broken_handoff_case(trace, work)
         run_ram_output_case(trace, work)
+        run_ram_output_case(trace, work, ram_keyboard=True)
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)
@@ -1967,7 +2063,7 @@ def main() -> None:
         run_baudtest2_case(trace, work)
         run_baudtest2_case(trace, work, truncate_case=7)
         for version in (
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
         ):
             run_fastboot_case(trace, work, version=version, faults=False)
             run_fastboot_case(trace, work, version=version, faults=True)
@@ -1979,6 +2075,7 @@ def main() -> None:
         run_fastboot_disk_case(trace, work, 12)
         run_fastboot_disk_case(trace, work, 13)
         run_fastboot_disk_case(trace, work, 14)
+        run_fastboot_disk_case(trace, work, 15)
         run_fastboot_case(
             trace, work, version=9, faults=False,
             low_latency_guards=True,

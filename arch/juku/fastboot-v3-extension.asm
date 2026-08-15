@@ -14,19 +14,30 @@
 USARTDATA       equ     008h
 USARTCTL        equ     009h
 
+.ifdef FASTBOOT_RAMBIOS
+DESTINATION     equ     0b000h
+ENTRY           equ     0c600h
+SYSTEM_SIZE     equ     02080h
+.else
 DESTINATION     equ     0b400h
 ENTRY           equ     0ca00h
 SYSTEM_SIZE     equ     01a00h
+.endif
 .ifdef FASTBOOT_ZX0
 COMPRESSED      equ     04000h
 COMPRESSED_LIMIT equ    01800h
 .ifdef FASTBOOT_TIGHT
+.ifdef FASTBOOT_V15
+PROTOCOL_VERSION equ    15
+rx              equ     0173h
+.else
 .ifdef FASTBOOT_V14
 PROTOCOL_VERSION equ    14
 rx              equ     0173h
 .else
 PROTOCOL_VERSION equ    7
 rx              equ     016eh
+.endif
 .endif
 .else
 PROTOCOL_VERSION equ    6
@@ -359,6 +370,11 @@ success_frame:
 extension_end:
 .ifdef FASTBOOT_ZX0
 .ifdef FASTBOOT_TIGHT
+.ifdef FASTBOOT_V15
+        .if     extension_end-0300h > 640
+        .error  "Fastboot v15 extension exceeds five records"
+        .endif
+.else
 .ifdef FASTBOOT_V14
         .if     extension_end-0300h > 640
         .error  "Fastboot v14 extension exceeds five records"
@@ -367,6 +383,7 @@ extension_end:
         .if     extension_end-0300h > 256
         .error  "Fastboot v7 extension exceeds two records"
         .endif
+.endif
 .endif
 .else
         .if     extension_end-0300h > 384

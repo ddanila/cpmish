@@ -11,6 +11,7 @@ __pycache__/
 /juku-net-baudtest2-system.bin
 /juku-net-mode2-soak-system.bin
 /juku-net-v2-ramout-system.bin
+/juku-net-v2-rambio-system.bin
 /juku-fastboot-stage1.bin
 /juku-fastboot-v2.bin
 /juku-fastboot-v3.bin

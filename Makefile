@@ -22,7 +22,9 @@ juku-net-cosim-check: juku-net-system.bin juku-net-smoke-system.bin \
 		juku-fastboot-v8.bin juku-fastboot-v9.bin juku-fastboot-v10.bin \
 		juku-fastboot-v11.bin juku-fastboot-v12.bin juku-fastboot-v13.bin \
 		juku-fastboot-v14.bin juku-fastboot-v14-netdisk-v2.bin \
+		juku-fastboot-v15-rambio.bin \
 		juku-net-v2-system.bin juku-net-v2-ramout-system.bin \
+		juku-net-v2-rambio-system.bin \
 		juku-net-v2.img juku.img
 	python3 arch/juku/net_cosim_check.py
 
@@ -36,8 +38,14 @@ juku-fastboot-cosim-check: juku-fastboot-stage1.bin juku-fastboot-v2.bin \
 		juku-fastboot-v13.bin \
 		juku-fastboot-v14.bin \
 		juku-fastboot-v14-netdisk-v2.bin \
+		juku-fastboot-v15-rambio.bin \
 		juku-net-mode2-system.bin
 	python3 arch/juku/net_cosim_check.py --fastboot-only
+
+.PHONY: juku-fastboot-v15-cosim-check
+juku-fastboot-v15-cosim-check: juku-fastboot-v15-rambio.bin \
+		juku-net-v2-rambio-system.bin juku-net-v2.img
+	python3 arch/juku/net_cosim_check.py --fastboot-v15-only
 
 .PHONY: juku-netdisk-benchmark
 juku-netdisk-benchmark: juku-fastboot-v14.bin \
@@ -48,6 +56,10 @@ juku-netdisk-benchmark: juku-fastboot-v14.bin \
 .PHONY: juku-ram-output-cosim-check
 juku-ram-output-cosim-check: juku-net-v2-ramout-system.bin juku-net-v2.img
 	python3 arch/juku/net_cosim_check.py --ram-output-only
+
+.PHONY: juku-ram-bios-cosim-check
+juku-ram-bios-cosim-check: juku-net-v2-rambio-system.bin juku-net-v2.img
+	python3 arch/juku/net_cosim_check.py --ram-bios-only
 
 TARGETS = +all
 include build/ab.mk

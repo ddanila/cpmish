@@ -39,6 +39,9 @@ EXTENSION_SIZE  equ     0100h
 ; record and finds the padded or exact extension in the metadata.
         jmp     start
 .ifdef FASTBOOT_STREAM
+.ifdef FASTBOOT_V15
+        db      'J','F','1','5'
+.else
 .ifdef FASTBOOT_V14
         db      'J','F','1','4'
 .else
@@ -58,6 +61,7 @@ EXTENSION_SIZE  equ     0100h
         db      'J','F','V','9'
 .else
         db      'J','F','V','8'
+.endif
 .endif
 .endif
 .endif
@@ -89,7 +93,14 @@ EXTENSION_SIZE  equ     0100h
 
 start:
         di
+.ifdef FASTBOOT_V15
+        ; V15 expands a larger 51K system from B000h.  Keep the loader stack
+        ; below the compressed input at 4000h so decompression cannot overwrite
+        ; its own return addresses while filling B000h..D07Fh.
+        lxi     sp,03ff0h
+.else
         lxi     sp,0b3f0h
+.endif
 .ifndef FASTBOOT_PROBE_SYNC
         mvi     a,0ffh
         out     PICMASK

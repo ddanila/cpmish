@@ -783,13 +783,13 @@ therefore uses a separate 51K layout shifted down by 1 KiB:
 | exclusive upper boundary | `CE00h` | `CE00h` |
 
 The smaller TPA buys 1024 resident bytes without trespassing into firmware
-work RAM or the framebuffer. This is now implemented as the separately named,
-experimental `juku-net-v2-ramout-system.bin`. Its `JUKU51` marker tells the
-host to send a 7,808-byte executable through the unmodified stock Janet loader:
+work RAM or the framebuffer. This is implemented first as the separately named,
+experimental `juku-net-v2-ramout-system.bin`. Its legacy `JUKU51` marker tells
+the host to send a 7,808-byte executable through the unmodified stock Janet loader:
 a 128-byte `0100h` staging copier followed by the complete 7,680-byte resident
 payload. The copier installs that payload at `B000h` and enters the relocated
 BIOS at `C600h`. The established 52K artifact and its loading rules are
-unchanged. Fastboot does not yet select the 51K format.
+unchanged.
 
 Stage 1 replaces only `CONOUT` with a 40x24 RAM renderer and retains the proven
 RomBios `CONST`/`CONIN`, IR5 keyboard scan, and dispatcher. The renderer has an
@@ -811,11 +811,43 @@ stale firmware cursor; neither is accepted as harmless visual noise. This
 Stage-1 artifact is simulator-proven but has not yet been tried on physical
 hardware.
 
-Stage 2 will move keyboard scan/decode into RAM while preserving the RomBios
-result as an A/B oracle. Owning the complete interrupt entry is last; it
-requires a full replacement for the stack, bank-mode, PIC/EOI, keyboard, and
-frame-service contract and must not be implemented by patching `D79Fh` in
-isolation. The RomBios 52K path remains the physical baseline throughout.
+Stage 2 is now implemented as `juku-net-v2-rambio-system.bin`. It adds a
+polled RAM keyboard matrix scanner and keeps the RAM framebuffer permanently
+visible in memory mode 3. The scanner's row/column table is transcribed from
+the factory keyboard drawing, includes Shift and Control translation, and
+requires release before reporting another key. Cold boot masks every PIC
+input, so this baseline needs no RomBios stack, interrupt dispatcher, keyboard
+service, frame service, or mapped ROM after takeover. It deliberately leaves
+`D79Fh` unchanged and restores the former NetBios service slots to `RET`.
+The resident tail occupies `CF00h..D07Fh`. Those last 128 bytes reclaim the
+first page of the former RomBios workspace only after the stock staging copier
+has executed `DI`; no firmware code or interrupt can then observe it. The
+container builder rejects any linked or padded image crossing `D080h`, leaving
+`D080h..D7FFh` untouched and the framebuffer at `D800h` clear of code/data.
+
+The new self-describing `JUKURM1` container records load address `B000h`, entry
+`C600h`, padded resident length, and CRC16/IBM. The stock Janet host validates
+those fields and CRC before building the `0100h` staging copier. The focused
+`make juku-ram-bios-cosim-check` regression types `DIR` through the modeled
+physical matrix, completes 35 NetDisk reads, compares all 9,600 framebuffer
+bytes with an independent transcript renderer, and proves final mode 3, PIC
+mask `FFh`, intact `D79Fh`, and detached firmware service vectors.
+
+`juku-fastboot-v15-rambio.bin` carries the same RAM BIOS over the established
+fully buffered V14 transport as protocol V15. Its 6,249-byte artifact contains
+a 125/128-byte stock core, 267-byte extension, eight-byte `ZF` descriptor, and
+a 5,846-byte ZX0 stream expanding to 8,320 bytes at `B000h`. The V15 core puts
+its private stack below the compressed buffer; the simulator caught the first
+draft overwriting a legacy `B3F0h` stack while expanding the larger image.
+Clean transfer, corrupt/lost-stream recovery, delayed-Rx stress, byte-exact
+installation, and complete prompt/`DIR` handoff now pass. The final checkpoint
+again proves all-RAM mode, all IRQs masked, RAM keyboard input, framebuffer
+output, and NetDisk v2 operation. Run the focused matrix with
+`make juku-fastboot-v15-cosim-check`.
+
+Both RAM artifacts remain simulator-proven experiments, not hardware-qualified
+replacements for the frozen V14/RomBios path. The RomBios 52K path remains the
+physical baseline throughout.
 
 The native character generator displayed a printable Estonian glyph while the
 control-key combination was entered. Preserve the working console baseline for

@@ -42,6 +42,18 @@ zmac(
     ],
 )
 zmac(
+    name="bios-net-v2-rambio",
+    src="./bios-net-v2-rambio.asm",
+    deps=[
+        "include/cpm.lib", "./bios.asm", "./ram-console.asm",
+        "./ram-console-font.asm",
+    ],
+)
+zmac(
+    name="ram-keyboard",
+    src="./ram-keyboard.asm",
+)
+zmac(
     name="diag",
     src="./diag.asm",
     deps=["third_party/juku-common/diag/memory.asm"],
@@ -263,6 +275,24 @@ zmac(
     relocatable=False,
 )
 zmac(
+    name="fastboot-v15-core",
+    src="./fastboot-v3-core.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_STREAM", "FASTBOOT_V15",
+        "FASTBOOT_EXACT", "FASTBOOT_EXT_ACK", "FASTBOOT_PROBE_SYNC",
+    ],
+    relocatable=False,
+)
+zmac(
+    name="fastboot-v15-extension",
+    src="./fastboot-v3-extension.asm",
+    defines=[
+        "FASTBOOT_8N1", "FASTBOOT_ZX0", "FASTBOOT_TIGHT", "FASTBOOT_V15",
+        "FASTBOOT_STREAM_ACK", "FASTBOOT_RAMBIOS",
+    ],
+    relocatable=False,
+)
+zmac(
     name="fastboot-v4-core",
     src="./fastboot-v4-core.asm",
     relocatable=False,
@@ -372,6 +402,16 @@ ld80(
         0xC600: [".+bios-net-v2-ramout"],
     },
 )
+ld80(
+    name="memory-net-v2-rambio",
+    address=0xB000,
+    objs={
+        0xB000: ["third_party/dr/ccp+ccp-juku"],
+        0xB800: ["third_party/dr/bdos"],
+        0xC600: [".+bios-net-v2-rambio"],
+        0xCF00: [".+ram-keyboard"],
+    },
+)
 
 # Juku's preserved SYSGEN files reserve 512 bytes before the 52 resident
 # 128-byte records. Keep the complete 10 KiB boot-track region so the result
@@ -429,6 +469,15 @@ simplerule(
         "python3 arch/juku/mksystem51.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETV2RAMOUTSYSTEM",
+)
+simplerule(
+    name="systemfile-net-v2-rambio",
+    ins=[".+memory-net-v2-rambio"],
+    outs=["=juku-net-v2-rambio-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystemram.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETV2RAMBIOSYSTEM",
 )
 simplerule(
     name="fastboot-v6-bin",
@@ -579,6 +628,21 @@ simplerule(
         "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
     ],
     label="JUKUFASTBOOTV14NETDISKV2",
+)
+simplerule(
+    name="fastboot-v15-rambio-bin",
+    ins=[
+        ".+fastboot-v15-core",
+        ".+fastboot-v15-extension",
+        ".+systemfile-net-v2-rambio",
+        "third_party/zx0+zx0",
+    ],
+    outs=["=juku-fastboot-v15-rambio.bin"],
+    commands=[
+        "python3 arch/juku/build_fastboot_v9.py "
+        "{ins[0]} {ins[1]} {ins[2]} {ins[3]} {outs[0]}",
+    ],
+    label="JUKUFASTBOOTV15RAMBIO",
 )
 simplerule(
     name="systemfile-net-smoke",
