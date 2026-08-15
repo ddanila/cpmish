@@ -34,6 +34,14 @@ zmac(
     deps=["include/cpm.lib", "./bios.asm"],
 )
 zmac(
+    name="bios-net-v2-ramout",
+    src="./bios-net-v2-ramout.asm",
+    deps=[
+        "include/cpm.lib", "./bios.asm", "./ram-console.asm",
+        "./ram-console-font.asm",
+    ],
+)
+zmac(
     name="diag",
     src="./diag.asm",
     deps=["third_party/juku-common/diag/memory.asm"],
@@ -355,6 +363,15 @@ ld80(
         BBASE: [".+bios-net-v2"],
     },
 )
+ld80(
+    name="memory-net-v2-ramout",
+    address=0xB000,
+    objs={
+        0xB000: ["third_party/dr/ccp+ccp-juku"],
+        0xB800: ["third_party/dr/bdos"],
+        0xC600: [".+bios-net-v2-ramout"],
+    },
+)
 
 # Juku's preserved SYSGEN files reserve 512 bytes before the 52 resident
 # 128-byte records. Keep the complete 10 KiB boot-track region so the result
@@ -403,6 +420,15 @@ simplerule(
         "python3 arch/juku/mksystem.py {ins[0]} {outs[0]}",
     ],
     label="JUKUNETV2SYSTEM",
+)
+simplerule(
+    name="systemfile-net-v2-ramout",
+    ins=[".+memory-net-v2-ramout"],
+    outs=["=juku-net-v2-ramout-system.bin"],
+    commands=[
+        "python3 arch/juku/mksystem51.py {ins[0]} {outs[0]}",
+    ],
+    label="JUKUNETV2RAMOUTSYSTEM",
 )
 simplerule(
     name="fastboot-v6-bin",

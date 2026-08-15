@@ -123,6 +123,19 @@ BOOT:
 .endif
         sta     RATE
 
+.ifdef RAMCONSOLE
+        ; RomBios still owns the frame/keyboard interrupt in Stage 1.  Hide
+        ; its independently tracked cursor before the RAM renderer takes over
+        ; or the ISR will keep painting a solid block at its stale position.
+        mvi     a,01bh
+        call    ROMCALL
+        dw      WRCHR
+        mvi     a,'4'
+        call    ROMCALL
+        dw      WRCHR
+        call    RAMCONINIT
+.endif
+
         xra     a
         sta     CDISK
         sta     HSTACT
@@ -155,6 +168,12 @@ BOOT:
         jmp     GOCPM
 
 VERMSG:
+.ifdef RAMCONSOLE
+        db      'CP/Mish 2.2 Juku RAM output',13,10
+        db      'NetDisk v2, 51K experiment',13,10
+        db      'GPT-5.6 Sol, Arvutimuuseum',13,10
+        db      'Danila Sukharev',13,10,0
+.else
 .ifdef NETWORKV2
         db      'CP/Mish 2.2 Juku NetDisk v2',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
@@ -163,6 +182,7 @@ VERMSG:
         db      'CP/Mish 2.2 Juku NETROM2',13,10
         db      'GPT-5.6 Sol, Arvutimuuseum',13,10
         db      'Danila Sukharev',13,10,0
+.endif
 .endif
 
 ; Resident CCP is outside the TPA and remains valid, so warm boot does not
@@ -233,8 +253,12 @@ CONIN:
 
 CONOUT:
         mov     a,c
+.ifdef RAMCONSOLE
+        call    RAMCONOUT
+.else
         call    ROMCALL
         dw      WRCHR
+.endif
         ret
 
 LIST:
@@ -668,10 +692,16 @@ SAVESP   equ    0d2fch
 ROMSTACK equ    SAVESP
 ; BDOS scratch space is intentionally outside the initialized 1 KiB BIOS
 ; image, matching the established EKDOS memory map.
-DIRBUF   equ    BBASE+8*128
+; Fixed outside both initialized resident layouts. This gives the relocated
+; RAM-console BIOS its complete C600h..CDFFh window.
+DIRBUF   equ    0ce00h
 ALLOC0   equ    DIRBUF+128
 ALLOC1   equ    ALLOC0+32
 CHK0     equ    ALLOC1+32
 CHK1     equ    CHK0+32
+
+.ifdef RAMCONSOLE
+        include "ram-console.asm"
+.endif
 
         end

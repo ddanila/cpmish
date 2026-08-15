@@ -783,21 +783,39 @@ therefore uses a separate 51K layout shifted down by 1 KiB:
 | exclusive upper boundary | `CE00h` | `CE00h` |
 
 The smaller TPA buys 1024 resident bytes without trespassing into firmware
-work RAM or the framebuffer. The unmodified monitor can still load it: the
-host sends a small `0100h` staging copier through stock Janet, the copier moves
-the expanded resident payload to `B000h`, and execution enters the relocated
-BIOS. Fastboot will gain the same separately versioned layout only after this
-stock-bootstrap path is correct.
+work RAM or the framebuffer. This is now implemented as the separately named,
+experimental `juku-net-v2-ramout-system.bin`. Its `JUKU51` marker tells the
+host to send a 7,808-byte executable through the unmodified stock Janet loader:
+a 128-byte `0100h` staging copier followed by the complete 7,680-byte resident
+payload. The copier installs that payload at `B000h` and enters the relocated
+BIOS at `C600h`. The established 52K artifact and its loading rules are
+unchanged. Fastboot does not yet select the 51K format.
 
-Implementation is deliberately staged. Stage 1 replaces only `CONOUT` with a
-RAM routine and retains the proven RomBios `CONST`/`CONIN`, IR5 keyboard scan,
-and dispatcher. The output routine executes below the mapped high-ROM window,
-disables interrupts, temporarily selects all-RAM mode 3 to read/scroll the
-framebuffer, restores mode 1, and then re-enables interrupts. Stage 2 moves
-keyboard scan/decode into RAM while preserving the RomBios result as an A/B
-oracle. Owning the complete interrupt entry is last; it requires a full
-replacement for the stack, bank-mode, PIC/EOI, keyboard, and frame-service
-contract and must not be implemented by patching `D79Fh` in isolation.
+Stage 1 replaces only `CONOUT` with a 40x24 RAM renderer and retains the proven
+RomBios `CONST`/`CONIN`, IR5 keyboard scan, and dispatcher. The renderer has an
+8x8 public-domain font in a 10-scanline cell, handles CR/LF/backspace, wraps,
+scrolls, and implements the `ESC L` clear used by cold boot. Code executes
+below the mapped high-ROM window; framebuffer operations disable interrupts,
+select all-RAM mode 3, and restore normal mode 1 before returning. Since the
+retained RomBios frame service otherwise keeps painting its independently
+tracked solid cursor into the new screen, cold boot first uses the documented
+firmware `ESC 4` operation to hide that cursor.
+
+`make juku-ram-output-cosim-check` now boots this exact image through stock
+Janet, reaches the prompt, types and executes `DIR` through RomBios input, and
+finishes with 35 network reads. It asserts the original `D79Fh` dispatcher,
+detached NetBios service vectors, mode-3/mode-1 framebuffer brackets, and a
+byte-exact framebuffer reference-rendered from the complete captured console
+transcript. The pixel oracle caught both an initial clear-loop defect and the
+stale firmware cursor; neither is accepted as harmless visual noise. This
+Stage-1 artifact is simulator-proven but has not yet been tried on physical
+hardware.
+
+Stage 2 will move keyboard scan/decode into RAM while preserving the RomBios
+result as an A/B oracle. Owning the complete interrupt entry is last; it
+requires a full replacement for the stack, bank-mode, PIC/EOI, keyboard, and
+frame-service contract and must not be implemented by patching `D79Fh` in
+isolation. The RomBios 52K path remains the physical baseline throughout.
 
 The native character generator displayed a printable Estonian glyph while the
 control-key combination was entered. Preserve the working console baseline for

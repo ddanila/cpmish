@@ -18,6 +18,8 @@ export(
         "juku-net-mode2-broken-system.bin":
             "arch/juku+systemfile-net-mode2-broken",
         "juku-net-v2-system.bin": "arch/juku+systemfile-net-v2",
+        "juku-net-v2-ramout-system.bin":
+            "arch/juku+systemfile-net-v2-ramout",
         "juku-net-smoke-system.bin": "arch/juku+systemfile-net-smoke",
         "juku-net-baudtest-system.bin": "arch/juku+systemfile-net-baudtest",
         "juku-net-baudtest2-system.bin": "arch/juku+systemfile-net-baudtest2",

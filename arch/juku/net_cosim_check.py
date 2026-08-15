@@ -29,6 +29,8 @@ MODE2_SYSTEM = ROOT / "juku-net-mode2-system.bin"
 BROKEN_MODE2_SYSTEM = ROOT / "juku-net-mode2-broken-system.bin"
 MODE2_FLAT = ROOT / "juku-net-mode2.img"
 NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
+RAMOUT_SYSTEM = ROOT / "juku-net-v2-ramout-system.bin"
+RAMOUT_FONT = ROOT / "arch" / "juku" / "ram-console-font.asm"
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
 SMOKE_FLAT = ROOT / "juku-net-smoke.img"
@@ -594,6 +596,63 @@ def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
     raise TimeoutError(
         f"console did not emit {marker!r}; transcript={bytes(result)!r}"
     )
+
+
+def render_ram_console(transcript: bytes) -> bytes:
+    """Reference-render a RAM console transcript for the VRAM oracle."""
+    font = bytearray()
+    for line in RAMOUT_FONT.read_text().splitlines():
+        if not line.lstrip().lower().startswith("db "):
+            continue
+        font.extend(int(value, 16) for value in re.findall(
+            r"\b([0-9a-f]+)h\b", line, re.IGNORECASE,
+        ))
+    require(len(font) == 94 * 8,
+            f"RAM console font has {len(font)} bytes, expected 752")
+
+    vram = bytearray(40 * 24 * 10)
+    column = row = 0
+    escaped = False
+    for character in transcript:
+        if escaped:
+            escaped = False
+            if character == ord("L"):
+                vram[:] = bytes(len(vram))
+                column = row = 0
+            continue
+        if character == 0x1B:
+            escaped = True
+            continue
+        if character == 0x0D:
+            column = 0
+            continue
+        if character == 0x0A:
+            row += 1
+        elif character == 0x08:
+            column = max(0, column - 1)
+            continue
+        elif character < 0x20:
+            continue
+        else:
+            require(character <= 0x7D,
+                    f"unsupported RAM console byte {character:02X}")
+            cell = row * 400 + column
+            glyph = font[(character - 0x20) * 8:(character - 0x1F) * 8]
+            vram[cell] = 0
+            for scanline, value in enumerate(glyph, 1):
+                vram[cell + scanline * 40] = value
+            vram[cell + 9 * 40] = 0
+            column += 1
+            if column < 40:
+                continue
+            column = 0
+            row += 1
+
+        if row >= 24:
+            vram[:9200] = vram[400:]
+            vram[9200:] = bytes(400)
+            row = 23
+    return bytes(vram)
 
 
 def read_console_for(fd: int, duration: float) -> bytes:
@@ -1203,6 +1262,125 @@ def run_broken_handoff_case(trace: Path, work: Path) -> None:
     )
 
 
+def run_ram_output_case(trace: Path, work: Path) -> None:
+    """Boot relocated RAM output while retaining RomBios matrix input."""
+    case = work / "ram-output"
+    case.mkdir()
+    resident = RAMOUT_SYSTEM.read_bytes()[512:512 + 7680]
+    conout_vector = 0xC60C - 0xB000
+    require(resident[conout_vector] == 0xC3,
+            "RAM output BIOS CONOUT vector is not a JMP")
+    conout_pc = int.from_bytes(
+        resident[conout_vector + 1:conout_vector + 3], "little",
+    )
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    console_master, console_slave = pty.openpty()
+    tty.setraw(console_slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_CONSOLE_PTY=os.ttyname(console_slave),
+        # Hook the JMP target, not merely the public vector: the cold-start
+        # banner calls CONOUT internally and must enter the pixel oracle too.
+        JUKU_CONSOLE_OUT_PC=f"0x{conout_pc:04X}",
+        JUKU_CONSOLE_OUT_REGISTER="C",
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_TRACE_BANK="1",
+        # The firmware-specific framebuffer prompt oracle cannot recognize the
+        # intentionally different RAM font. Host input is appended only after
+        # this test has observed A> through the character hook, so no marker is
+        # needed here.
+        JUKU_KEYS="TN0201",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_CHECKPOINT_PREFIX=str(case / "final"),
+    )
+    volume = bytearray(NETDISK_V2_FLAT.read_bytes())
+    stats: dict[str, int] = {}
+    disk_error: list[BaseException] = []
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        os.close(console_slave)
+        try:
+            boot = serve_boot(
+                master, RAMOUT_SYSTEM.read_bytes(), timeout=120,
+                verbose=False,
+            )
+
+            def disk_worker() -> None:
+                try:
+                    serve_disk(
+                        master, volume, timeout=180, idle_timeout=None,
+                        verbose=False, stats=stats,
+                    )
+                except BaseException as error:
+                    disk_error.append(error)
+
+            worker = threading.Thread(target=disk_worker)
+            worker.start()
+            first = read_console_until(console_master, b"A>", 120)
+            os.write(console_master, b"DIR\r")
+            second = read_console_until(console_master, b"A>", 120)
+            # The character hook fires at the public BIOS vector, before the
+            # renderer has consumed C.  Let the final prompt finish drawing
+            # before termination writes the framebuffer checkpoint.
+            time.sleep(0.1)
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            os.close(master)
+            if "worker" in locals():
+                worker.join(timeout=3)
+            os.close(console_master)
+
+    require(boot["image_bytes"] == 7808,
+            f"RAM output staging size changed: {boot['image_bytes']}")
+    require(b"A>" in first and b"DIR" in second,
+            f"RAM output console transcript is incomplete: {first + second!r}")
+    require(stats.get("reads", 0) >= 34,
+            f"RAM output DIR issued too few reads: {stats}")
+    require(all(isinstance(error, OSError) for error in disk_error),
+            f"RAM output disk server failed: {disk_error!r}")
+    log = (case / "stderr.txt").read_text()
+    require("[BANK] mode 1 -> 3" in log and "[BANK] mode 3 -> 1" in log,
+            "RAM output did not bracket framebuffer access with mode 3/1")
+    final_ram = (case / "final.ram").read_bytes()
+    require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
+            "RAM output modified the RomBios dispatcher")
+    require(all(final_ram[address] == 0xC9
+                for address in (0xD773, 0xD777, 0xD78F)),
+            "RAM output left a NetBios service vector installed")
+    vram = final_ram[0xD800:0xD800 + 9600]
+    digest = hashlib.sha256(vram).hexdigest()
+    expected_vram = render_ram_console(first + second)
+    mismatches = [
+        index
+        for index, (actual, expected) in enumerate(zip(vram, expected_vram))
+        if actual != expected
+    ]
+    require(vram == expected_vram,
+            "RAM output framebuffer differs from its console transcript: "
+            f"{len(mismatches)} bytes, first offsets={mismatches[:12]}, "
+            "first values="
+            f"{[(i, vram[i], expected_vram[i]) for i in mismatches[:12]]}, "
+            f"transcript={(first + second)!r}")
+    print(
+        "51K staged RAM output: PASS "
+        f"(RomBios keyboard DIR; reads={stats.get('reads', 0)}; "
+        f"VRAM={digest[:12]})"
+    )
+
+
 def run_native_drive_b_case(trace: Path, work: Path, game_image: Path) -> None:
     """Select, list, and execute a program from a native two-sided B:."""
     case = work / "native-drive-b"
@@ -1555,14 +1733,16 @@ def main() -> None:
     parser.add_argument("--keyboard-only", action="store_true")
     parser.add_argument("--fastboot-only", action="store_true")
     parser.add_argument("--netdisk-benchmark-only", action="store_true")
+    parser.add_argument("--ram-output-only", action="store_true")
     parser.add_argument("--game-disk", type=Path,
                         help="physical 800 KiB .JUK image for native B: test")
     args = parser.parse_args()
-    require(
-        all(path.is_file() for path in (
+    required_images = (
+        (RAMOUT_SYSTEM, NETDISK_V2_FLAT)
+        if args.ram_output_only else (
             SYSTEM, FLAT, SMOKE_SYSTEM, SMOKE_FLAT,
             MODE2_SYSTEM, BROKEN_MODE2_SYSTEM, MODE2_FLAT,
-            NETDISK_V2_SYSTEM, NETDISK_V2_FLAT,
+            NETDISK_V2_SYSTEM, RAMOUT_SYSTEM, NETDISK_V2_FLAT,
             BAUDTEST_SYSTEM, BAUDTEST_9600_FLAT, BAUDTEST_8N1_FLAT,
             BAUDTEST_LADDER_FLAT, BAUDTEST2_SYSTEM, BAUDTEST2_FLAT,
             MODE2_SOAK_SYSTEM, MODE2_SOAK_FLAT,
@@ -1574,7 +1754,10 @@ def main() -> None:
             FASTBOOT_V13,
             FASTBOOT_V14,
             FASTBOOT_V14_NETDISK_V2,
-        )),
+        )
+    )
+    require(
+        all(path.is_file() for path in required_images),
         "build the normal, smoke, and baud-test network images first",
     )
     with tempfile.TemporaryDirectory(prefix="cpmish-juku-net.") as name:
@@ -1711,6 +1894,9 @@ def main() -> None:
             if args.game_disk:
                 run_native_drive_b_case(trace, work, args.game_disk)
             return
+        if args.ram_output_only:
+            run_ram_output_case(trace, work)
+            return
         if args.baudtest_only:
             run_baudtest_case(
                 trace, work, test_baud=9600,
@@ -1758,6 +1944,7 @@ def main() -> None:
         )
         run_mode2_keyboard_case(trace, work)
         run_broken_handoff_case(trace, work)
+        run_ram_output_case(trace, work)
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)
