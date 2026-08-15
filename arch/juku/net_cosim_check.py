@@ -25,6 +25,7 @@ from cosim_check import build_trace, require, seed_command
 ROOT = Path(__file__).resolve().parents[2]
 COSIM = Path(os.environ.get("JUKU_COSIM_ROOT", ROOT.parent / "8080-cosim"))
 ROM = COSIM / "roms" / "ekta37.bin"
+DIRECT_ROM = COSIM / "spinoffs" / "jukuravi" / "remix" / "ekta4402.bin"
 SYSTEM = ROOT / "juku-net-system.bin"
 MODE2_SYSTEM = ROOT / "juku-net-mode2-system.bin"
 BROKEN_MODE2_SYSTEM = ROOT / "juku-net-mode2-broken-system.bin"
@@ -492,10 +493,15 @@ def run_fastboot_disk_case(
     drop_replies: int = 0,
     remote_console: bool = False,
     remote_console_drop_replies: int = 0,
+    direct_core: bool = False,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
             f"unsupported compact fastboot v{version}")
+    require(not direct_core or (version == 15 and netdisk_v3),
+            "direct ROM core test requires V15/NetDisk v3")
+    require(not direct_core or DIRECT_ROM.is_file(),
+            f"direct fastboot ROM is missing: {DIRECT_ROM}")
     case = work / (
         f"fastboot-v{version}-network-dir"
         + ("-netdisk-v3" if netdisk_v3 else "")
@@ -504,6 +510,7 @@ def run_fastboot_disk_case(
         + ("-cpu-a12-fault" if diag_cpu_fault else "")
         + (f"-drop-{drop_replies}-replies" if drop_replies else "")
         + ("-remote-console" if remote_console else "")
+        + ("-direct-rom" if direct_core else "")
         + (f"-drop-{remote_console_drop_replies}" if
            remote_console_drop_replies else "")
         + ("-low-latency" if low_latency_guards else "")
@@ -533,7 +540,8 @@ def run_fastboot_disk_case(
         JUKU_USART_PIT_CPU_HZ="1700000",
         JUKU_TRACE_BANK="1" if version == 15 else "0",
         JUKU_DISABLE_SETTLE="1",
-        JUKU_KEYS="TN0201" if version == 15 else "TN0201|",
+        JUKU_KEYS="N" if direct_core else
+        ("TN0201" if version == 15 else "TN0201|"),
         JUKU_KEY_HOLD_FRAMES="6",
         JUKU_KEY_GAP_FRAMES="8",
         JUKU_CHECKPOINT_PREFIX=str(case / "final"),
@@ -588,7 +596,8 @@ def run_fastboot_disk_case(
     with (case / "stdout.txt").open("w") as stdout, \
             (case / "stderr.txt").open("w") as stderr:
         process = subprocess.Popen(
-            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            [str(trace), str(DIRECT_ROM if direct_core else ROM),
+             "1000000000000", "0", "100000"],
             cwd=case, env=environment, stdout=stdout, stderr=stderr,
         )
         os.close(slave)
@@ -608,10 +617,11 @@ def run_fastboot_disk_case(
                  RAMBIOS_SYSTEM if version == 15 else MODE2_SYSTEM).read_bytes(),
                 stock_timeout=120, reply_timeout=8, verbose=False,
                 configure_rate=False,
-                compact_stock_execute=(version in (
+                compact_stock_execute=not direct_core and (version in (
                     8, 9, 10, 11, 12, 13, 14, 15,
                 )),
                 low_latency_guards=low_latency_guards,
+                direct_core=direct_core,
             )
 
             def disk_worker() -> None:
@@ -687,6 +697,13 @@ def run_fastboot_disk_case(
             f"fastboot v{version} network DIR cosim did not exit cleanly")
     require(result["protocol_version"] == version and result["retries"] == 0,
             f"fastboot v{version} network handoff retried: {result}")
+    if direct_core:
+        require(
+            result["direct_core"] == 1 and
+            result["stock_sent_frames"] == 0 and
+            result["stock_sent_bytes"] == 0,
+            f"direct ROM path unexpectedly used stock Janet: {result}",
+        )
     require(b"CP/Mish 2.2 Juku" in first and
             command.split()[0] in second,
             f"fastboot v{version} did not reach prompt/{command!r}: "
@@ -805,6 +822,7 @@ def run_fastboot_disk_case(
         bios_detail = "BIOS 8O1"
     print(
         f"FASTBOOT V{version} NETWORK {command.decode('ascii')}"
+        f"{' DIRECT-ROM' if direct_core else ''}"
         f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
         f"(reads={stats['reads']}, retries={stats['retries']}, {bios_detail})"
     )
@@ -2179,6 +2197,9 @@ def main() -> None:
             )
             run_fastboot_reset_recovery_case(trace, work)
             run_fastboot_disk_case(trace, work, 15)
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, direct_core=True,
+            )
             print("JUKU-FASTBOOT-V15-COSIM-CHECK: PASS")
             return
         if args.fastboot_only:

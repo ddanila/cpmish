@@ -945,6 +945,24 @@ cd ~/fun/cpmish && make juku-fastboot-v15-netdisk-v3.bin \
     /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
 ```
 
+With the separately versioned simulator-qualified `ekta4402` ROM, the same V15
+artifact can bypass stock Janet entirely. Start the host below and press `N`
+alone at the monitor (no Enter):
+
+```sh
+cd ~/fun/cpmish && ../8080-cosim/tools/janet_disk_server.py \
+    --fast-stage1 juku-fastboot-v15-netdisk-v3.bin --direct-fastboot \
+    --disk-baud 19200 --disk-protocol 3 --timeout 86400 \
+    /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
+```
+
+The ROM-resident 128-byte V15 core starts at 19200/8N1, so this path has no
+station discovery, 9600-baud record, or stock execute service. The end-to-end
+cosim matrix reaches `A>`, executes `DIR` in 12 v3 exchanges, and records zero
+stock frames/bytes. It also reproduces the transition to the RAM BIOS's
+19200/8O1 disk framing. Ekta4402 still requires physical qualification;
+ekta4401 plus the stock-ROM V14 path remain the hardware baselines.
+
 Add `--console-pty /dev/pts/NN` to advertise N4 and enable the optional remote
 console. Without it the host advertises N3 and the target stays disk-only.
 
@@ -952,11 +970,16 @@ Both RAM artifacts remain simulator-proven experiments, not hardware-qualified
 replacements for the frozen V14/RomBios path. The RomBios 52K path remains the
 physical baseline throughout.
 
-The native character generator displayed a printable Estonian glyph while the
-control-key combination was entered. Preserve the working console baseline for
-now; a future console/character-set study should determine whether selectable
-native/English glyphs or caret notation is preferable. Verify the original
-RomBios convention before changing control-character rendering.
+The console/character-set desk study is complete. Ekta37's `WRCHR` path saves
+the original byte and eventually passes it unchanged through the RomBios
+service vector to the native renderer. A printable Estonian glyph for a low
+control byte is therefore the stock font convention, not keyboard corruption.
+The independent V15 RAM BIOS deliberately uses a public ASCII font, handles
+BS/CR/LF/ESC as controls, suppresses other bytes below 20h, and renders bytes
+above 7Dh as `?`; its transcript/framebuffer oracle pins that behavior.
+Selectable native/English presentation remains a user-interface preference
+and physical-console decision, not a missing simulator correctness fix. The
+working RomBios baseline remains unchanged.
 
 ### Monitorless CS00015 network smoke test
 
