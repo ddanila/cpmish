@@ -845,6 +845,13 @@ again proves all-RAM mode, all IRQs masked, RAM keyboard input, framebuffer
 output, and NetDisk v2 operation. Run the focused matrix with
 `make juku-fastboot-v15-cosim-check`.
 
+That matrix also resets the emulated board after byte 900 of the first V15
+stream. The stock ROM starts again on the same serial connection, scripted
+`TN` is replayed, and the host returns to 9600 request discovery after its
+bounded failed exchange. A second V15 transfer then reaches `C600h` byte-exact.
+The server permits three complete bootstrap rediscoveries by default, closing
+the formerly open automated power-reset/restart case.
+
 Both RAM artifacts remain simulator-proven experiments, not hardware-qualified
 replacements for the frozen V14/RomBios path. The RomBios 52K path remains the
 physical baseline throughout.

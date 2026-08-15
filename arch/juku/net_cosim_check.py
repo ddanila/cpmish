@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+import termios
 import tty
 
 from cosim_check import build_trace, require, seed_command
@@ -63,7 +64,11 @@ FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
 
-from janet_disk_server import juku_image_to_volume, serve_disk  # noqa: E402
+from janet_disk_server import (  # noqa: E402
+    boot_with_recovery,
+    juku_image_to_volume,
+    serve_disk,
+)
 from janet_fastboot import serve_fast  # noqa: E402
 from janet_netboot import serve as serve_boot  # noqa: E402
 
@@ -623,6 +628,79 @@ def run_fastboot_disk_case(
         f"FASTBOOT V{version} NETWORK DIR"
         f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
         f"(reads={stats['reads']}, retries={stats['retries']}, {bios_detail})"
+    )
+
+
+def run_fastboot_reset_recovery_case(trace: Path, work: Path) -> None:
+    """Reset V15 mid-stream and prove fresh stock-request rediscovery."""
+    case = work / "fastboot-v15-reset-recovery"
+    case.mkdir()
+    checkpoint = case / "checkpoint"
+    master, slave = pty.openpty()
+    tty.setraw(slave)
+    environment = os.environ.copy()
+    environment.update(
+        JUKU_USART_PTY=os.ttyname(slave),
+        JUKU_USART_TRANSFER_CYCLES="64",
+        JUKU_USART_BYTE_CYCLES="2300",
+        JUKU_USART_PIT_CLOCK="1",
+        JUKU_USART_PIT_CPU_HZ="1700000",
+        JUKU_DISABLE_SETTLE="1",
+        JUKU_KEYS="TN0201",
+        JUKU_KEY_HOLD_FRAMES="6",
+        JUKU_KEY_GAP_FRAMES="8",
+        JUKU_RESET_AFTER_USART_RX="900",
+        JUKU_STOP_PC="0xC600",
+        JUKU_CHECKPOINT_PREFIX=str(checkpoint),
+    )
+    with (case / "stdout.txt").open("w") as stdout, \
+            (case / "stderr.txt").open("w") as stderr:
+        process = subprocess.Popen(
+            [str(trace), str(ROM), "1000000000000", "0", "100000"],
+            cwd=case, env=environment, stdout=stdout, stderr=stderr,
+        )
+        os.close(slave)
+        try:
+            def attempt() -> dict[str, object]:
+                return serve_fast(
+                    master, FASTBOOT_V15_RAMBIOS.read_bytes(),
+                    RAMBIOS_SYSTEM.read_bytes(),
+                    stock_timeout=30, reply_timeout=0.3, retries=1,
+                    verbose=False, configure_rate=False,
+                    compact_stock_execute=True,
+                )
+
+            boot = boot_with_recovery(
+                attempt,
+                prepare_retry=lambda: termios.tcflush(
+                    master, termios.TCIOFLUSH,
+                ),
+                max_restarts=2,
+                verbose=False,
+            )
+            process.wait(timeout=20)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
+            os.close(master)
+
+    require(process.returncode == 0,
+            "V15 reset-recovery cosim did not reach its second handoff")
+    require(boot.get("boot_restarts") == 1,
+            f"V15 reset recovery count differs: {boot}")
+    state = parse_state(checkpoint.with_suffix(".state"))
+    ram = checkpoint.with_suffix(".ram").read_bytes()
+    expected = RAMBIOS_SYSTEM.read_bytes()[512:]
+    require(state.get("pc") == "C600" and
+            ram[0xB000:0xB000 + len(expected)] == expected,
+            "V15 reset recovery did not install the second image byte-exactly")
+    log = (case / "stderr.txt").read_text()
+    require(log.count("[RESET] one-shot board reset") == 1,
+            "V15 reset fault did not fire exactly once")
+    print(
+        "FASTBOOT V15 RESET RECOVERY: PASS "
+        "(mid-stream reset; fresh stock request; byte-exact second handoff)"
     )
 
 
@@ -1866,6 +1944,7 @@ def main() -> None:
             run_fastboot_case(
                 trace, work, version=15, faults=False, rx_irq_delay=True,
             )
+            run_fastboot_reset_recovery_case(trace, work)
             run_fastboot_disk_case(trace, work, 15)
             print("JUKU-FASTBOOT-V15-COSIM-CHECK: PASS")
             return
@@ -1974,6 +2053,7 @@ def main() -> None:
             run_fastboot_case(
                 trace, work, version=15, faults=False, rx_irq_delay=True,
             )
+            run_fastboot_reset_recovery_case(trace, work)
             run_fastboot_case(
                 trace, work, version=4, faults=False,
                 force_rate_fallback=True,
