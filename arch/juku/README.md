@@ -485,6 +485,17 @@ desk predictions: v8 still requires a logged CS00015 run, and v6's 6.214 s
 remains the fastest exact physical timing. Run v8 by substituting
 `juku-fastboot-v8.bin` in `--fast-stage1`.
 
+For the fastest separately identifiable host policy, add
+`--compact-stock-execute`. The native server's final execute service is `0Fh`
+padded to 127 bytes across three fragments; the unmodified ROM also accepts
+the canonical one-fragment `03 0F` form. This reduces a clean one-record stock
+stage from 18 to 14 host frames and removes 154 serial bytes including line
+turns, a 9600/8O1 wire floor of about 176 ms. Full clean/fault and CP/M `DIR`
+cosim paths pass. The `06h` end descriptor and its full fixed descriptor could
+not be removed or shortened and remain unchanged. V8 plus this policy projects
+roughly **5.64 s**, pending a logged CS00015 run; ordinary stock boot retains
+the captured padded execute form by default.
+
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
 blocks, and about 784 KiB usable capacity. The host accepts a physical 800 KiB

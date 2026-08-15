@@ -193,6 +193,7 @@ def run_fastboot_case(
                 reply_filter=receive_reply,
                 extension_filter=inject_extension,
                 rate_probe_filter=filter_rate_probe,
+                compact_stock_execute=(version == 8),
             )
             process.wait(timeout=20)
         finally:
@@ -242,6 +243,14 @@ def run_fastboot_case(
                 f"fastboot stage grew to {result['stage_bytes']} bytes")
     require(result["protocol_version"] == version,
             f"fastboot v{version} negotiated v{result['protocol_version']}")
+    if version == 8:
+        require(
+            result["stock_sent_frames"] ==
+            14 + 2 * result["stock_ack_09"]
+            and result["stock_compact_execute"] == 1
+            and result["stock_execute_service_bytes"] == 1,
+            f"fastboot v8 compact stock execute changed: {result}",
+        )
     if faults:
         expected_retries = 2 if version in (3, 4, 5, 6, 7, 8) else 3
         require(result["retries"] == expected_retries,
@@ -356,6 +365,7 @@ def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
                 MODE2_SYSTEM.read_bytes(),
                 stock_timeout=120, reply_timeout=3, verbose=False,
                 configure_rate=False,
+                compact_stock_execute=(version == 8),
             )
 
             def disk_worker() -> None:
