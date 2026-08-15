@@ -507,7 +507,7 @@ simplerule(
     ins=[".+memory-net-v3-rambio"],
     outs=["=juku-net-v3-rambio-system.bin"],
     commands=[
-        "python3 arch/juku/mksystemram.py --max-size 0x2400 "
+        "python3 arch/juku/mksystemram.py --max-size 0x2500 "
         "{ins[0]} {outs[0]}",
     ],
     label="JUKUNETV3RAMBIOSYSTEM",

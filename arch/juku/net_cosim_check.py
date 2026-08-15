@@ -489,6 +489,7 @@ def run_fastboot_disk_case(
     netdisk_v3: bool = False,
     command: bytes = b"DIR",
     diag_cpu_fault: bool = False,
+    drop_replies: int = 0,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
@@ -499,6 +500,7 @@ def run_fastboot_disk_case(
         + ("-" + command.decode("ascii").lower().replace(" ", "-")
            if command != b"DIR" else "")
         + ("-cpu-a12-fault" if diag_cpu_fault else "")
+        + (f"-drop-{drop_replies}-replies" if drop_replies else "")
         + ("-low-latency" if low_latency_guards else "")
     )
     case.mkdir()
@@ -558,6 +560,14 @@ def run_fastboot_disk_case(
     )
     stats: dict[str, int] = {}
     errors: list[BaseException] = []
+    drop_state = {"enabled": False, "count": 0}
+
+    def disk_reply_filter(_attempt: int, reply: bytes) -> bytes:
+        if drop_state["enabled"] and drop_state["count"] < drop_replies:
+            drop_state["count"] += 1
+            return b""
+        return reply
+
     with (case / "stdout.txt").open("w") as stdout, \
             (case / "stderr.txt").open("w") as stderr:
         process = subprocess.Popen(
@@ -593,6 +603,7 @@ def run_fastboot_disk_case(
                         master, volume, timeout=180, idle_timeout=None,
                         verbose=False, stats=stats,
                         protocol_version=3 if netdisk_v3 else 2,
+                        reply_filter=disk_reply_filter if drop_replies else None,
                     )
                 except BaseException as error:
                     errors.append(error)
@@ -600,8 +611,21 @@ def run_fastboot_disk_case(
             worker = threading.Thread(target=disk_worker)
             worker.start()
             first = read_console_until(console_master, b"A>", 120)
+            if drop_replies:
+                drop_state["enabled"] = True
             os.write(console_master, command + b"\r")
-            second = read_console_until(console_master, b"A>", 120)
+            if drop_replies:
+                failed = read_console_until(console_master, b"Bad Sector", 120)
+                # Any non-Ctrl-C response tells CP/M 2.2 to return from its
+                # permanent-error handler. The modeled matrix has Return but
+                # no synthetic Control modifier, so use Return here.
+                os.write(console_master, b"\r")
+                recovered = read_console_until(console_master, b"A>", 120)
+                os.write(console_master, command + b"\r")
+                second = read_console_until(console_master, b"A>", 120)
+            else:
+                failed = recovered = b""
+                second = read_console_until(console_master, b"A>", 120)
             time.sleep(0.1)
             process.terminate()
             process.wait(timeout=5)
@@ -625,10 +649,18 @@ def run_fastboot_disk_case(
             command.split()[0] in second,
             f"fastboot v{version} did not reach prompt/{command!r}: "
             f"{first!r} {second!r}")
+    if drop_replies:
+        require(
+            b"Bdos Err On A: Bad Sector" in failed and
+            drop_state["count"] == drop_replies and
+            stats.get("dropped_replies") == drop_replies,
+            f"bounded disk timeout/reconnect path differs: "
+            f"failed={failed!r} drop={drop_state} stats={stats}",
+        )
     if command == b"DIR":
         require(stats.get("read_records", 0) >= 34,
                 f"fastboot v{version} DIR issued too few reads: {stats}")
-        if netdisk_v3:
+        if netdisk_v3 and not drop_replies:
             require(stats.get("reads", 0) <= 13,
                     f"fastboot NetDisk v3 did not use read-ahead: {stats}")
     elif command == b"DIAG ALL":
@@ -666,8 +698,25 @@ def run_fastboot_disk_case(
                     for address in (0xD773, 0xD777, 0xD78F)),
                 "V15 RAM BIOS left a NetBios service vector installed")
         vram = final_ram[0xD800:0xD800 + 9600]
-        require(vram == render_ram_console(first + second),
-                "V15 framebuffer differs from its console transcript")
+        expected_vram = render_ram_console(
+            first + failed + recovered + second,
+        )
+        (case / "console.bin").write_bytes(
+            first + failed + recovered + second,
+        )
+        (case / "expected-vram.bin").write_bytes(expected_vram)
+        differing = next(
+            (index for index, pair in enumerate(zip(vram, expected_vram))
+             if pair[0] != pair[1]),
+            None,
+        )
+        require(
+            vram == expected_vram,
+            "V15 framebuffer differs from its console transcript: "
+            f"first={differing} actual="
+            f"{hashlib.sha256(vram).hexdigest()[:12]} expected="
+            f"{hashlib.sha256(expected_vram).hexdigest()[:12]}",
+        )
         bios_detail = (
             "RAM BIOS NetDisk v3/all-RAM" if netdisk_v3 else
             "RAM BIOS 8O1/all-RAM"
@@ -816,8 +865,8 @@ def render_ram_console(transcript: bytes) -> bytes:
         elif character < 0x20:
             continue
         else:
-            require(character <= 0x7D,
-                    f"unsupported RAM console byte {character:02X}")
+            if character > 0x7D:
+                character = ord("?")
             cell = row * 400 + column
             glyph = font[(character - 0x20) * 8:(character - 0x1F) * 8]
             vram[cell] = 0
@@ -1465,7 +1514,7 @@ def run_ram_output_case(
     container = system_source.read_bytes()
     resident = container[512:] if ram_keyboard else container[512:512 + 7680]
     if ram_keyboard:
-        expected_size = 0x2400 if netdisk_v3 else 0x2080
+        expected_size = 0x2480 if netdisk_v3 else 0x2080
         require(container[:8] == b"JUKURM1\x1a" and
                 container[8:12] == bytes.fromhex("00 b0 00 c6") and
                 len(resident) == expected_size,
@@ -2212,6 +2261,9 @@ def main() -> None:
                 trace, work, 15, netdisk_v3=True, command=b"DIAG CPU",
                 diag_cpu_fault=True,
             )
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, drop_replies=3,
+            )
             print("JUKU-NETDISK-V3-COSIM-CHECK: PASS")
             return
         if args.baudtest_only:
@@ -2293,6 +2345,9 @@ def main() -> None:
         run_fastboot_disk_case(
             trace, work, 15, netdisk_v3=True, command=b"DIAG CPU",
             diag_cpu_fault=True,
+        )
+        run_fastboot_disk_case(
+            trace, work, 15, netdisk_v3=True, drop_replies=3,
         )
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)

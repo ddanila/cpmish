@@ -70,6 +70,9 @@ RAMNOTLF:
 RAMPRINTABLE:
         cpi     020h
         jc      RAMOUTDONE
+        cpi     07eh
+        jc      RAMCHAROK
+        mvi     e,'?'                  ; bound characters outside the font
 RAMCHAROK:
         ; Font pointer = RAMFONT + (character - 20h) * 8.
         mov     a,e

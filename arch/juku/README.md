@@ -864,12 +864,22 @@ the formerly open automated power-reset/restart case.
 
 Stage 3 is the separately named `juku-net-v3-rambio-system.bin`, carried by
 `juku-fastboot-v15-netdisk-v3.bin`. It keeps V15's deterministic transport and
-the independent 51K RAM BIOS, but expands the resident through `D3FFh` and uses
-the otherwise firmware-owned `D080h..D3FFh` region for three cached records and
-the NetDisk-v3 client. This is safe only because cold start has executed `DI`,
-masked every PIC input, selected permanent all-RAM mode 3, and detached all
-RomBios services. The RomBios/V14 artifacts and their memory boundary remain
-unchanged.
+the independent 51K RAM BIOS, but expands the resident through `D47Fh` and uses
+the otherwise firmware-owned `D080h..D47Fh` region for three cached records,
+the NetDisk-v3 client, and bounded receive/retry state. The added tail remains
+well below the framebuffer at `D800h`; V14 and the original RAM-BIOS-v2
+boundary are unchanged. This is safe only because cold start has executed
+`DI`, masked every PIC input, selected permanent all-RAM mode 3, and detached
+all RomBios services.
+
+The larger BIOS also exposed a latent font/buffer collision: the final 14
+bytes of the complete `20h..7Dh` font crossed `CE00h`, where the original CP/M
+directory buffer could overwrite them. `DIAG ALL` made this visible because
+its `|` glyph began correctly and ended with live directory bytes. V15 now
+places its uninitialized directory/allocation/check buffers at `D500h..D5FFh`;
+the other layouts keep their established addresses. Characters above the font
+range render as `?` instead of indexing arbitrary RAM. The pixel oracle covers
+the repaired final glyphs byte-for-byte.
 
 The host advertises `NRN3`. Opcode 14h returns up to three records in exact
 Juku translated-sector order and may cross a track boundary. Every record has
@@ -883,6 +893,13 @@ cycle-accurate model showed why this is required: local 8080 fill expansion
 takes longer than one wire character, and streaming the next descriptor
 immediately can overrun D11's one-byte receive buffer.
 
+Every receive byte now has a bounded 65,536-status-poll wait. A transaction
+gets three exact attempts; exhaustion returns BIOS error 1 instead of hanging
+CP/M forever. A later disk operation starts a new sequence and can recover
+after the host reconnects. The simulator suppresses three complete replies
+after a live prompt, observes `Bdos Err On A: Bad Sector`, answers the CP/M
+error prompt, and then completes a fresh `DIR` with the same target process.
+
 Negotiation is backward compatible. An `N2` host selects compact one-record
 opcode 13h, while a legacy repeated `NR` selects raw opcode 11h. The focused
 regression proves a complete prompt and `DIR` with all three hosts: v3 needs 12
@@ -895,10 +912,10 @@ while the register-pair test runs; `DIAG CPU` must report mask `02` and return
 to CP/M, proving the negative path without damaging bootstrap.
 Run it with `make juku-netdisk-v3-cosim-check`.
 
-The current v3 fastboot artifact is 6,585 bytes: 125/128 bytes of core, 267
-extension bytes, an eight-byte `ZF` descriptor, and a 6,182-byte ZX0 stream
-expanding to 9,216 bytes. SHA-256 is
-`1c4200490ac7607c2a9046f2fc2d7c1b7214f15d6b481d575d92ff9ca8ad9c6f`.
+The current v3 fastboot artifact is 6,665 bytes: 125/128 bytes of core, 267
+extension bytes, an eight-byte `ZF` descriptor, and a 6,262-byte ZX0 stream
+expanding to 9,344 bytes. SHA-256 is
+`62da7f352c7fab86b098ec51dbef27d1ee69a2e51219657281b82a1c9f72eaee`.
 The V15 loader and host validator alone accept this larger stream below their
 8 KiB compressed-buffer boundary; older V6-V14 limits remain frozen.
 

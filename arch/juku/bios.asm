@@ -419,6 +419,10 @@ NRWDISK:
         lda     SEQUENCE
         inr     a
         sta     SEQUENCE
+.ifdef NETWORKV3
+        mvi     a,3
+        sta     NETTRIES
+.endif
 NETRETRY:
 .ifndef BROKEN_NET_HANDOFF
         di
@@ -476,23 +480,39 @@ NETTXDRAIN:
 
 NETSYNC:
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         cpi     'D'
         jnz     NETSYNC
         mvi     b,'D'
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         xri     'J'
         jnz     NETSYNC
         mov     a,b
         xri     'J'
         mov     b,a
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         mov     c,a
         xra     b
         mov     b,a
         lda     SEQUENCE
         cmp     c
+.ifdef NETWORKV3
+        jnz     NETBAD
+.else
         jnz     NETRETRY
+.endif
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         mov     c,a
         xra     b
         mov     b,a
@@ -513,6 +533,9 @@ NETSYNC:
         cpi     2
         jnz     NETCHECK
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         mov     e,a
         xra     b
         mov     b,a
@@ -531,6 +554,9 @@ NETREADRAW:
         mvi     d,128
 NETREAD:
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         mov     m,a
         xra     b
         mov     b,a
@@ -539,12 +565,32 @@ NETREAD:
         jnz     NETREAD
 NETCHECK:
         call    NETRX
+.ifdef NETWORKV3
+        jc      NETBAD
+.endif
         xra     b
+.ifdef NETWORKV3
+        jnz     NETBAD
+.else
         jnz     NETRETRY
+.endif
         mov     a,c
         ora     a
         jz      NETDONE
         mvi     a,1
+.ifdef NETWORKV3
+        jmp     NETDONE
+
+; Bound a complete transaction to three attempts. Returning a BIOS disk error
+; lets BDOS remain interactive; the next disk call starts a fresh sequence and
+; can therefore recover after a host reconnect.
+NETBAD:
+        lda     NETTRIES
+        dcr     a
+        sta     NETTRIES
+        jnz     NETRETRY
+        mvi     a,1
+.endif
 NETDONE:
 .ifndef BROKEN_NET_HANDOFF
         push    psw
@@ -576,11 +622,32 @@ NETTXWAIT:
         ret
 
 NETRX:
+.ifdef NETWORKV3
+        push    b
+        lxi     b,0            ; 65536 status polls, about one second
+NETRXWAIT:
+        in      USARTCTL
+        ani     2
+        jnz     NETRXREADY
+        dcx     b
+        mov     a,b
+        ora     c
+        jnz     NETRXWAIT
+        pop     b
+        stc
+        ret
+NETRXREADY:
+        in      USARTDATA
+        pop     b
+        ora     a              ; return data with carry clear
+        ret
+.else
         in      USARTCTL
         ani     2
         jz      NETRX
         in      USARTDATA
         ret
+.endif
 
 NETINIT:
         di
@@ -770,6 +837,9 @@ SEQUENCE: db    0
 .ifdef NETWORKV2
 NETV2:   db     0
 .endif
+.ifdef NETWORKV3
+NETTRIES:db     0
+.endif
 .endif
 
 ; These words must remain visible when a monitor call returns with the ROM
@@ -778,11 +848,19 @@ NETV2:   db     0
 SAVEHL   equ    0d2feh
 SAVESP   equ    0d2fch
 ROMSTACK equ    SAVESP
-; BDOS scratch space is intentionally outside the initialized 1 KiB BIOS
+; BDOS scratch space is intentionally outside the initialized BIOS
 ; image, matching the established EKDOS memory map.
 ; Fixed outside both initialized resident layouts. This gives the relocated
 ; RAM-console BIOS its complete C600h..CDFFh window.
+.ifdef NETWORKV3
+; The complete 94-glyph RAM font now reaches just beyond CE00h. In permanent
+; all-RAM mode, move the transient BDOS buffers above the NetDisk-v3 code so
+; directory traffic cannot overwrite the final glyphs. This storage is runtime
+; state, not part of the initialized container.
+DIRBUF   equ    0d500h
+.else
 DIRBUF   equ    0ce00h
+.endif
 ALLOC0   equ    DIRBUF+128
 ALLOC1   equ    ALLOC0+32
 CHK0     equ    ALLOC1+32
