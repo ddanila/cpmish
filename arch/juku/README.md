@@ -134,9 +134,12 @@ Build the Juku outputs from the repository root:
 make juku-system.bin juku.img
 ```
 
-The disk also contains `DIAG.COM`, a CP/M wrapper around the shared
-non-destructive RAM cell test from the pinned `juku-common` submodule. It tests
-private scratch storage, restores every byte, and reports `PASS` or `FAIL`.
+The disk also contains `DIAG.COM`, a CP/M wrapper around the shared diagnostic
+cores from the pinned `juku-common` submodule. `DIAG CPU` checks the 8080
+ALU/flags, rotates, DAA, register-pair increment/DAD, SP, and PUSH/POP paths;
+`DIAG MEM` tests and restores a private 256-byte scratch page; and `DIAG ALL`
+runs both. A zero failure mask is `PASS`; a failure prints the structured hex
+mask. No argument preserves the original private-memory-test behavior.
 Initialize dependencies after cloning with:
 
 ```sh
@@ -204,10 +207,15 @@ identity changes.
    bring-up baseline.~~
 2. ~~Validate filesystem reads/writes, console input, transient commands, and
    warm boot in `8080-cosim`.~~
-3. Validate `juku-system.bin` through the existing Janet serial-network
-   bootstrap and add the cross-repository regression.
-4. Test the image on CS00015, first through Janet and then from physical media.
-5. Add optional RAM-disk support after the floppy-backed baseline is stable.
+3. ~~Validate `juku-system.bin` through the existing Janet serial-network
+   bootstrap and add the cross-repository regression.~~
+4. ~~Test the image on CS00015 through Janet; also qualify CS00014 and the
+   native host-backed game disk.~~ Physical-floppy qualification remains
+   separate from the network baseline.
+5. Do not consume the stock machine's 51K TPA for a RAM disk: its single
+   64 KiB RAM bank has no spare backing store. Host-backed A:/B: volumes cover
+   the diskless use case. Revisit only for expanded-memory hardware or an
+   explicitly TPA-reducing experiment.
 6. Reuse the proven hardware layer for a nonbanked CP/M Plus 3.1 port.
 
 ## Diskless network mode
@@ -881,6 +889,10 @@ regression proves a complete prompt and `DIR` with all three hosts: v3 needs 12
 requests for at least 35 records, while v2 and v1 each need 35. It also corrupts
 the first v3 CRC and proves exactly one retry, then exercises stock Janet,
 fastboot V15, byte-exact installation, all-RAM handoff, and v3 `DIR` end to end.
+The same path runs `DIAG ALL` and proves both shared CPU and RAM cores. A
+scoped emulator injection arms the former CS00015 D1/A12 increment fault only
+while the register-pair test runs; `DIAG CPU` must report mask `02` and return
+to CP/M, proving the negative path without damaging bootstrap.
 Run it with `make juku-netdisk-v3-cosim-check`.
 
 The current v3 fastboot artifact is 6,585 bytes: 125/128 bytes of core, 267
@@ -1262,8 +1274,10 @@ V3 is now implemented: its assembled core is 117/128 bytes and extension is
 the extension and strong-CRC stream, installs all 6656 bytes byte-exact, and
 enters CA00h. The injected-fault run also rejects a corrupt extension and
 stream, recovers after total stream loss, and accepts the second of three
-success replies when the first is lost. Automated reset/re-discovery remains
-open. The first physical CS00015 attempt authenticated the extension, then
+success replies when the first is lost. The later V15 reset regression resets
+the target during transfer, rediscovers its fresh stock request, and completes
+the retry on the same connection. The first physical CS00015 attempt
+authenticated the extension, then
 exposed the host's one-second USB serial write-room timeout while queuing the
 long stream. Granting only that stream a ten-second stall allowance adds no
 intentional delay. After reset, the second run reached the visible prompt with

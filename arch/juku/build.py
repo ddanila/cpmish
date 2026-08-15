@@ -65,7 +65,10 @@ zmac(name="netdisk-v3", src="./netdisk-v3.asm")
 zmac(
     name="diag",
     src="./diag.asm",
-    deps=["third_party/juku-common/diag/memory.asm"],
+    deps=[
+        "third_party/juku-common/diag/cpu.asm",
+        "third_party/juku-common/diag/memory.asm",
+    ],
     relocatable=False,
 )
 zmac(

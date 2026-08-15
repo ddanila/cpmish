@@ -62,6 +62,7 @@ FASTBOOT_V14 = ROOT / "juku-fastboot-v14.bin"
 FASTBOOT_V14_NETDISK_V2 = ROOT / "juku-fastboot-v14-netdisk-v2.bin"
 FASTBOOT_V15_RAMBIOS = ROOT / "juku-fastboot-v15-rambio.bin"
 FASTBOOT_V15_NETDISK_V3 = ROOT / "juku-fastboot-v15-netdisk-v3.bin"
+DIAG_COM = ROOT / ".obj" / "arch" / "juku" / "+diag" / "diag.cim"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
 sys.path.insert(0, str(COSIM / "tools"))
@@ -486,6 +487,8 @@ def run_fastboot_case(
 def run_fastboot_disk_case(
     trace: Path, work: Path, version: int, *, low_latency_guards: bool = False,
     netdisk_v3: bool = False,
+    command: bytes = b"DIR",
+    diag_cpu_fault: bool = False,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
@@ -493,6 +496,9 @@ def run_fastboot_disk_case(
     case = work / (
         f"fastboot-v{version}-network-dir"
         + ("-netdisk-v3" if netdisk_v3 else "")
+        + ("-" + command.decode("ascii").lower().replace(" ", "-")
+           if command != b"DIR" else "")
+        + ("-cpu-a12-fault" if diag_cpu_fault else "")
         + ("-low-latency" if low_latency_guards else "")
     )
     case.mkdir()
@@ -525,6 +531,23 @@ def run_fastboot_disk_case(
         JUKU_KEY_GAP_FRAMES="8",
         JUKU_CHECKPOINT_PREFIX=str(case / "final"),
     )
+    if diag_cpu_fault:
+        require(version == 15 and command == b"DIAG CPU",
+                "the controlled CPU fault requires V15 DIAG CPU")
+        diagnostic = DIAG_COM.read_bytes()
+        pair_signature = bytes.fromhex("01 ff 0f 03 78 fe 10")
+        failure_signature = bytes.fromhex("3e 02 c9")
+        pair_offset = diagnostic.find(pair_signature)
+        failure_offset = diagnostic.find(failure_signature, pair_offset)
+        require(pair_offset >= 0 and failure_offset >= 0,
+                "cannot locate shared CPU pair test/failure return")
+        environment.update(
+            JUKU_CPU_A12_INCREMENT_FAULT_ARM_PC=f"0x{0x100 + pair_offset:04X}",
+            JUKU_CPU_A12_INCREMENT_FAULT_ARM_BANK_MODE="3",
+            JUKU_CPU_A12_INCREMENT_FAULT_DISARM_PC=(
+                f"0x{0x100 + failure_offset:04X}"
+            ),
+        )
     if version == 15:
         environment.update(
             JUKU_CONSOLE_OUT_PC=f"0x{conout_pc:04X}",
@@ -577,7 +600,7 @@ def run_fastboot_disk_case(
             worker = threading.Thread(target=disk_worker)
             worker.start()
             first = read_console_until(console_master, b"A>", 120)
-            os.write(console_master, b"DIR\r")
+            os.write(console_master, command + b"\r")
             second = read_console_until(console_master, b"A>", 120)
             time.sleep(0.1)
             process.terminate()
@@ -598,17 +621,32 @@ def run_fastboot_disk_case(
             f"fastboot v{version} network DIR cosim did not exit cleanly")
     require(result["protocol_version"] == version and result["retries"] == 0,
             f"fastboot v{version} network handoff retried: {result}")
-    require(b"CP/Mish 2.2 Juku" in first and b"DIR" in second,
-            f"fastboot v{version} did not reach prompt/DIR: "
+    require(b"CP/Mish 2.2 Juku" in first and
+            command.split()[0] in second,
+            f"fastboot v{version} did not reach prompt/{command!r}: "
             f"{first!r} {second!r}")
-    require(stats.get("read_records", 0) >= 34,
-            f"fastboot v{version} DIR issued too few reads: {stats}")
-    if netdisk_v3:
-        require(stats.get("reads", 0) <= 13,
-                f"fastboot NetDisk v3 did not use read-ahead: {stats}")
+    if command == b"DIR":
+        require(stats.get("read_records", 0) >= 34,
+                f"fastboot v{version} DIR issued too few reads: {stats}")
+        if netdisk_v3:
+            require(stats.get("reads", 0) <= 13,
+                    f"fastboot NetDisk v3 did not use read-ahead: {stats}")
+    elif command == b"DIAG ALL":
+        require(b"CPU: PASS" in second and b"RAM: PASS" in second,
+                f"shared DIAG clean result differs: {second!r}")
+    elif command == b"DIAG CPU" and diag_cpu_fault:
+        require(b"CPU: FAIL mask 02" in second,
+                f"shared DIAG missed D1/A12 fault: {second!r}")
     require(all(isinstance(error, OSError) for error in errors),
             f"fastboot v{version} disk server failed: {errors!r}")
     state = parse_state((case / "final.state"))
+    if diag_cpu_fault:
+        require(
+            state.get("cpu_a12_increment_fault_arm_fired") == "1" and
+            state.get("cpu_a12_increment_fault_disarm_fired") == "1" and
+            state.get("cpu_a12_increment_fault") == "0",
+            f"controlled CPU fault did not arm/disarm cleanly: {state}",
+        )
     final_ram = (case / "final.ram").read_bytes()
     require(final_ram[0xD79F:0xD7A4] == bytes.fromhex("e3 22 56 d4 e1"),
             f"fastboot v{version} did not preserve RomBios dispatcher")
@@ -641,7 +679,7 @@ def run_fastboot_disk_case(
                 f"v{version} did not exercise its 8N1-to-BIOS-8O1 transition")
         bios_detail = "BIOS 8O1"
     print(
-        f"FASTBOOT V{version} NETWORK DIR"
+        f"FASTBOOT V{version} NETWORK {command.decode('ascii')}"
         f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
         f"(reads={stats['reads']}, retries={stats['retries']}, {bios_detail})"
     )
@@ -2167,6 +2205,13 @@ def main() -> None:
                 host_protocol=1,
             )
             run_fastboot_disk_case(trace, work, 15, netdisk_v3=True)
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, command=b"DIAG ALL",
+            )
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, command=b"DIAG CPU",
+                diag_cpu_fault=True,
+            )
             print("JUKU-NETDISK-V3-COSIM-CHECK: PASS")
             return
         if args.baudtest_only:
@@ -2242,6 +2287,13 @@ def main() -> None:
             host_protocol=1,
         )
         run_fastboot_disk_case(trace, work, 15, netdisk_v3=True)
+        run_fastboot_disk_case(
+            trace, work, 15, netdisk_v3=True, command=b"DIAG ALL",
+        )
+        run_fastboot_disk_case(
+            trace, work, 15, netdisk_v3=True, command=b"DIAG CPU",
+            diag_cpu_fault=True,
+        )
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)
         run_mode2_soak_case(trace, work)
