@@ -1,0 +1,57 @@
+{
+  "schema": "juku-netdisk-v2-physical-qualification-v1",
+  "date": "2026-08-15",
+  "machine": "CS00015",
+  "station_server": 1,
+  "station_client": 8,
+  "fastboot": {
+    "artifact": "juku-fastboot-v14-netdisk-v2.bin",
+    "sha256": "23fe0e156541717885d9fa76e9bd288724bdb633dfbcd8cf597e634d30a070a6",
+    "system_sha256": "6a8621c5ed9321840581965f8d189d7ec49d4d94c3c64113600e307c3573910e",
+    "first_disk_request_seconds": [
+      6.1163543610600755,
+      6.116790106985718,
+      6.115778030012734
+    ],
+    "mean_seconds": 6.116307499352843,
+    "spread_seconds": 0.0010120769729837775,
+    "extension_retries": [0, 0, 0],
+    "stream_retries": [0, 0, 0],
+    "extension_header_probes": [1, 1, 1],
+    "stream_header_probes": [1, 1, 1]
+  },
+  "netdisk": {
+    "protocol": 2,
+    "read_opcode": 19,
+    "baud": 19200,
+    "framing": "8O1",
+    "startup_directory_records": 32,
+    "startup_compact_records": 30,
+    "startup_scan_request_timestamp_span_seconds": [0.771, 0.771, 0.785],
+    "dir_passed": true,
+    "rdbench": {
+      "passed": true,
+      "requests": 75,
+      "first_request_boot_seconds": 46.946,
+      "last_request_boot_seconds": 53.372,
+      "request_timestamp_span_seconds": 6.426,
+      "readme_data_first_request_boot_seconds": 47.242,
+      "readme_data_last_request_boot_seconds": 53.372,
+      "readme_data_request_timestamp_span_seconds": 6.13,
+      "useful_payload_kib_per_second_approx": 1.4,
+      "retries": 0,
+      "errors": 0
+    }
+  },
+  "bench_notes": [
+    "A: prompt, DIR, and complete no-console README.TXT read passed.",
+    "B: was intentionally not attached. Selecting B: returned status 1 and the Digital Research BDOS SELECT error required RESET; Ctrl-C did not recover.",
+    "The CS00015 Space key did not register. TYPE=README.TXT also cannot substitute for a space because this CCP leaves the delimiter at the intrinsic argument boundary and reports =README.TXT?.",
+    "The full TYPE README.TXT transcript remains byte-complete in cosim; physical RDBENCH proved every file record without depending on console output."
+  ],
+  "raw_boot_evidence": [
+    "cs00015-netdisk-v2-run1-20260815.json",
+    "cs00015-netdisk-v2-run2-20260815.json",
+    "cs00015-netdisk-v2-run3-20260815.json"
+  ]
+}

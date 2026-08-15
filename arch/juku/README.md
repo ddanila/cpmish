@@ -641,6 +641,31 @@ forces the legacy marker/path for fallback qualification. Cosim boots the v2
 BIOS against that forced v1 host, reaches the prompt, and completes `DIR` with
 the original one-record wire counts.
 
+Three physical CS00015 NetDisk-v2 boots passed on 2026-08-15. All used one
+extension probe and one stream probe, had zero retry, and reached the first
+opcode-13h disk request at 6.116354, 6.116790, and 6.115778 seconds. The
+first-to-last request timestamp span for the 32-record startup directory scan
+was 0.771, 0.771, and 0.785 seconds; 30 records used the compact encoding.
+`DIR` worked visibly. `RDBENCH` then loaded and read all of `README.TXT` in 75
+requests with no retry or error: its complete request span was 6.426 seconds,
+and the 70-record file-data portion spanned 6.13 seconds, approximately 1.4
+KiB/s of useful payload. This physically qualifies v2 on CS00015 while keeping
+V14's deterministic boot behavior.
+
+The bench also exposed two independent usability facts. B: was intentionally
+unattached; selecting it produced the expected status-one response, after
+which Digital Research BDOS remained in `BDOS ERR ON B: SELECT` and ignored
+Ctrl-C. RESET plus a fresh network boot was required. Also, this CS00015's
+Space key did not register. Although `=` is a CCP filename delimiter,
+`TYPE=README.TXT` cannot replace the intrinsic-command space because the CCP
+does not consume that delimiter before parsing the argument. The no-console
+reader therefore provided the physical whole-file proof; cosim continues to
+prove the complete `TYPE README.TXT` transcript.
+
+Raw evidence is retained in `cs00015-netdisk-v2-run1-20260815.json` through
+`run3`, with the derived interactive record in
+`cs00015-netdisk-v2-qualification-20260815.json`.
+
 Stock frame tracing also rejects eager post-ACK sending. A normal one-record
 request contains 36 client frames after the request, including 26 scans of
 other stations. Sending the next fragment before the required directed poll
