@@ -916,10 +916,12 @@ deleted-directory fill, or literal prefix plus repeated tail byte. A
 CRC16/IBM covers the complete `DJ` response body. Invalid CRC, sequence,
 status, record count, or encoding causes the client to repeat the identical
 request; writes invalidate the cache and retain the synchronous v1/v2 write
-path. The server inserts a 4 ms guard between encoded record descriptors. The
-cycle-accurate model showed why this is required: local 8080 fill expansion
-takes longer than one wire character, and streaming the next descriptor
-immediately can overrun D11's one-byte receive buffer.
+path. The server inserts a 4 ms guard between encoded record descriptors,
+starting only after accounting for the preceding queued bytes at the
+19,200/8O1 wire rate. The cycle-accurate model showed why both parts are
+required: local 8080 fill expansion takes longer than one wire character,
+while starting the guard at `write()` return lets a long descriptor consume it
+entirely inside the USB-UART queue and overrun D11's one-byte receive buffer.
 
 Every receive byte now has a bounded 65,536-status-poll wait. A transaction
 gets three exact attempts; exhaustion returns BIOS error 1 instead of hanging
@@ -942,10 +944,10 @@ while the register-pair test runs; `DIAG CPU` must report mask `02` and return
 to CP/M, proving the negative path without damaging bootstrap.
 Run it with `make juku-netdisk-v3-cosim-check`.
 
-The current v3 fastboot artifact is 6,893 bytes: 125/128 bytes of core, 267
-extension bytes, an eight-byte `ZF` descriptor, and a 6,490-byte ZX0 stream
+The current v3 fastboot artifact is 6,885 bytes: 125/128 bytes of core, 267
+extension bytes, an eight-byte `ZF` descriptor, and a 6,482-byte ZX0 stream
 expanding to 9,728 bytes. SHA-256 is
-`8a49746f9af32c2608a4f5d6b04ca06b0fe4e3f43c4f1b39afcc37eb69fc4eb5`.
+`c831bbb9909e97858d8d41682874b5ddde6bd51e4f6a0c11ca17c3977f99dcff`.
 The V15 loader and host validator alone accept this larger stream below their
 8 KiB compressed-buffer boundary; older V6-V14 limits remain frozen.
 
