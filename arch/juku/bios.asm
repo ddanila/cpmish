@@ -20,6 +20,12 @@ label   BBASE
         extrn   N3INV
         extrn   N3ENA
 .endif
+.ifdef NETWORKCONSOLE
+        extrn   NCENA
+        extrn   NCSTAT
+        extrn   NCIN
+        extrn   NCOUT
+.endif
 
 ; Public CP/M 2.2 BIOS jump table.
         jmp     BOOT
@@ -168,7 +174,11 @@ BOOT:
 .ifdef NETWORKV2
         call    PRINT
         db      'A: Janet 386K, B: native 784K',13,10
+.ifdef NETWORKV3
+        db      '19200, NetDisk v3',13,10,10,0
+.else
         db      '19200, NetDisk v2',13,10,10,0
+.endif
 .else
 .ifdef NETWORK19200
         call    PRINT
@@ -277,6 +287,11 @@ FUNCTION:
 
 CONST:
 .ifdef RAMKEYBOARD
+.ifdef NETWORKCONSOLE
+        call    NCSTAT
+        ora     a
+        rnz
+.endif
         call    RKSTAT
 .else
         call    ROMCALL
@@ -286,7 +301,22 @@ CONST:
 
 CONIN:
 .ifdef RAMKEYBOARD
+.ifdef NETWORKCONSOLE
+CONINWAIT:
+        call    NCSTAT
+        ora     a
+        jnz     CONINREMOTE
+        call    RKSTAT
+        ora     a
+        jz      CONINWAIT
         call    RKIN
+        ret
+CONINREMOTE:
+        call    NCIN
+        ret
+.else
+        call    RKIN
+.endif
 .else
         call    ROMCALL
         dw      RDCHR
@@ -297,6 +327,9 @@ CONOUT:
         mov     a,c
 .ifdef RAMCONSOLE
         call    RAMCONOUT
+.ifdef NETWORKCONSOLE
+        call    NCOUT
+.endif
 .else
         call    ROMCALL
         dw      WRCHR
@@ -682,13 +715,18 @@ NETREADY:
         cpi     'R'
         jnz     NETREADY
 .ifdef NETWORKV3
-        ; V3 advertises N3. N2 selects the compact single-record fallback;
-        ; a repeated legacy NR leaves mode 1. The helper owns all three paths.
+        ; N4 selects v3 plus the optional remote console, N3 selects disk only,
+        ; N2 selects compact single-record fallback, and repeated legacy NR
+        ; leaves mode 1. The helper owns all four paths.
         mvi     c,1
         call    NETRX
         cpi     'N'
         jnz     NETV3DONE
         call    NETRX
+.ifdef NETWORKCONSOLE
+        cpi     '4'
+        jz      NETV4MARK
+.endif
         cpi     '3'
         jz      NETV3MARK
         cpi     '2'
@@ -697,6 +735,12 @@ NETREADY:
         jmp     NETV3DONE
 NETV3MARK:
         mvi     c,3
+.ifdef NETWORKCONSOLE
+        jmp     NETV3DONE
+NETV4MARK:
+        mvi     c,3
+        call    NCENA
+.endif
 NETV3DONE:
         mov     a,c
         call    N3ENA
@@ -857,7 +901,7 @@ ROMSTACK equ    SAVESP
 ; all-RAM mode, move the transient BDOS buffers above the NetDisk-v3 code so
 ; directory traffic cannot overwrite the final glyphs. This storage is runtime
 ; state, not part of the initialized container.
-DIRBUF   equ    0d500h
+DIRBUF   equ    0d640h
 .else
 DIRBUF   equ    0ce00h
 .endif

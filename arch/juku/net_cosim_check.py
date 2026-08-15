@@ -490,6 +490,8 @@ def run_fastboot_disk_case(
     command: bytes = b"DIR",
     diag_cpu_fault: bool = False,
     drop_replies: int = 0,
+    remote_console: bool = False,
+    remote_console_drop_replies: int = 0,
 ) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9, 10, 11, 12, 13, 14, 15),
@@ -501,6 +503,9 @@ def run_fastboot_disk_case(
            if command != b"DIR" else "")
         + ("-cpu-a12-fault" if diag_cpu_fault else "")
         + (f"-drop-{drop_replies}-replies" if drop_replies else "")
+        + ("-remote-console" if remote_console else "")
+        + (f"-drop-{remote_console_drop_replies}" if
+           remote_console_drop_replies else "")
         + ("-low-latency" if low_latency_guards else "")
     )
     case.mkdir()
@@ -560,11 +565,23 @@ def run_fastboot_disk_case(
     )
     stats: dict[str, int] = {}
     errors: list[BaseException] = []
+    remote_input = bytearray()
+    remote_output = bytearray()
     drop_state = {"enabled": False, "count": 0}
+    console_drop_state = {"enabled": False, "count": 0}
 
     def disk_reply_filter(_attempt: int, reply: bytes) -> bytes:
         if drop_state["enabled"] and drop_state["count"] < drop_replies:
             drop_state["count"] += 1
+            return b""
+        return reply
+
+    def console_reply_filter(
+        _attempt: int, _operation: int, reply: bytes,
+    ) -> bytes:
+        if console_drop_state["enabled"] and \
+                console_drop_state["count"] < remote_console_drop_replies:
+            console_drop_state["count"] += 1
             return b""
         return reply
 
@@ -604,17 +621,37 @@ def run_fastboot_disk_case(
                         verbose=False, stats=stats,
                         protocol_version=3 if netdisk_v3 else 2,
                         reply_filter=disk_reply_filter if drop_replies else None,
+                        console_protocol=remote_console,
+                        console_input=remote_input if remote_console else None,
+                        console_output=remote_output if remote_console else None,
+                        console_reply_filter=(
+                            console_reply_filter
+                            if remote_console_drop_replies else None
+                        ),
                     )
                 except BaseException as error:
                     errors.append(error)
 
             worker = threading.Thread(target=disk_worker)
             worker.start()
-            first = read_console_until(console_master, b"A>", 120)
-            if drop_replies:
+            first = read_console_until(
+                console_master, b"A>", 30 if remote_console else 120,
+            )
+            if remote_console:
+                require(version == 15 and netdisk_v3 and not drop_replies,
+                        "remote console requires clean V15/NetDisk v3")
+                remote_input.extend(command + b"\r")
+                console_drop_state["enabled"] = True
+            elif drop_replies:
                 drop_state["enabled"] = True
-            os.write(console_master, command + b"\r")
-            if drop_replies:
+            if not remote_console:
+                os.write(console_master, command + b"\r")
+            if remote_console:
+                failed = recovered = b""
+                second = read_console_until(console_master, b"A>", 120)
+                os.write(console_master, b"DIR\r")
+                third = read_console_until(console_master, b"A>", 120)
+            elif drop_replies:
                 failed = read_console_until(console_master, b"Bad Sector", 120)
                 # Any non-Ctrl-C response tells CP/M 2.2 to return from its
                 # permanent-error handler. The modeled matrix has Return but
@@ -623,9 +660,11 @@ def run_fastboot_disk_case(
                 recovered = read_console_until(console_master, b"A>", 120)
                 os.write(console_master, command + b"\r")
                 second = read_console_until(console_master, b"A>", 120)
+                third = b""
             else:
                 failed = recovered = b""
                 second = read_console_until(console_master, b"A>", 120)
+                third = b""
             time.sleep(0.1)
             process.terminate()
             process.wait(timeout=5)
@@ -640,6 +679,9 @@ def run_fastboot_disk_case(
             except OSError:
                 pass
             os.close(console_master)
+            (case / "disk-stats.json").write_text(
+                json.dumps(stats, indent=2, sort_keys=True) + "\n"
+            )
 
     require(process.returncode in (-15, 0),
             f"fastboot v{version} network DIR cosim did not exit cleanly")
@@ -649,6 +691,33 @@ def run_fastboot_disk_case(
             command.split()[0] in second,
             f"fastboot v{version} did not reach prompt/{command!r}: "
             f"{first!r} {second!r}")
+    if remote_console:
+        remote_transcript = bytes(remote_output)
+        local_transcript = first + second + third
+        (case / "remote-console.bin").write_bytes(remote_transcript)
+        remote_difference = next(
+            (index for index, pair in enumerate(zip(
+                remote_transcript, local_transcript,
+            )) if pair[0] != pair[1]),
+            None,
+        )
+        require(
+            b"CP/Mish 2.2 Juku" in second and b"DIR" in third and
+            not remote_input and
+            remote_transcript == local_transcript and
+            stats.get("console_input_bytes") == len(command) + 1 and
+            stats.get("console_output_bytes") == len(remote_output),
+            "remote/local console transcript or counters differ: "
+            f"input={remote_input!r} output={len(remote_output)} "
+            f"transcript={len(local_transcript)} first={remote_difference} "
+            f"stats={stats}",
+        )
+        require(
+            console_drop_state["count"] == remote_console_drop_replies and
+            stats.get("dropped_replies") == remote_console_drop_replies,
+            f"remote-console loss injection differs: "
+            f"drop={console_drop_state} stats={stats}",
+        )
     if drop_replies:
         require(
             b"Bdos Err On A: Bad Sector" in failed and
@@ -699,10 +768,10 @@ def run_fastboot_disk_case(
                 "V15 RAM BIOS left a NetBios service vector installed")
         vram = final_ram[0xD800:0xD800 + 9600]
         expected_vram = render_ram_console(
-            first + failed + recovered + second,
+            first + failed + recovered + second + third,
         )
         (case / "console.bin").write_bytes(
-            first + failed + recovered + second,
+            first + failed + recovered + second + third,
         )
         (case / "expected-vram.bin").write_bytes(expected_vram)
         differing = next(
@@ -1514,7 +1583,7 @@ def run_ram_output_case(
     container = system_source.read_bytes()
     resident = container[512:] if ram_keyboard else container[512:512 + 7680]
     if ram_keyboard:
-        expected_size = 0x2480 if netdisk_v3 else 0x2080
+        expected_size = 0x2600 if netdisk_v3 else 0x2080
         require(container[:8] == b"JUKURM1\x1a" and
                 container[8:12] == bytes.fromhex("00 b0 00 c6") and
                 len(resident) == expected_size,
@@ -2262,7 +2331,16 @@ def main() -> None:
                 diag_cpu_fault=True,
             )
             run_fastboot_disk_case(
-                trace, work, 15, netdisk_v3=True, drop_replies=3,
+                trace, work, 15, netdisk_v3=True,
+                command=b"TYPE README.TXT", drop_replies=3,
+            )
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, command=b"VER",
+                remote_console=True,
+            )
+            run_fastboot_disk_case(
+                trace, work, 15, netdisk_v3=True, command=b"VER",
+                remote_console=True, remote_console_drop_replies=1,
             )
             print("JUKU-NETDISK-V3-COSIM-CHECK: PASS")
             return
@@ -2347,7 +2425,16 @@ def main() -> None:
             diag_cpu_fault=True,
         )
         run_fastboot_disk_case(
-            trace, work, 15, netdisk_v3=True, drop_replies=3,
+            trace, work, 15, netdisk_v3=True,
+            command=b"TYPE README.TXT", drop_replies=3,
+        )
+        run_fastboot_disk_case(
+            trace, work, 15, netdisk_v3=True, command=b"VER",
+            remote_console=True,
+        )
+        run_fastboot_disk_case(
+            trace, work, 15, netdisk_v3=True, command=b"VER",
+            remote_console=True, remote_console_drop_replies=1,
         )
         if args.game_disk:
             run_native_drive_b_case(trace, work, args.game_disk)

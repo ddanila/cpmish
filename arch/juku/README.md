@@ -864,8 +864,8 @@ the formerly open automated power-reset/restart case.
 
 Stage 3 is the separately named `juku-net-v3-rambio-system.bin`, carried by
 `juku-fastboot-v15-netdisk-v3.bin`. It keeps V15's deterministic transport and
-the independent 51K RAM BIOS, but expands the resident through `D47Fh` and uses
-the otherwise firmware-owned `D080h..D47Fh` region for three cached records,
+the independent 51K RAM BIOS, but expands the resident through `D5FFh` and uses
+the otherwise firmware-owned `D080h..D5FFh` region for three cached records,
 the NetDisk-v3 client, and bounded receive/retry state. The added tail remains
 well below the framebuffer at `D800h`; V14 and the original RAM-BIOS-v2
 boundary are unchanged. This is safe only because cold start has executed
@@ -876,10 +876,18 @@ The larger BIOS also exposed a latent font/buffer collision: the final 14
 bytes of the complete `20h..7Dh` font crossed `CE00h`, where the original CP/M
 directory buffer could overwrite them. `DIAG ALL` made this visible because
 its `|` glyph began correctly and ended with live directory bytes. V15 now
-places its uninitialized directory/allocation/check buffers at `D500h..D5FFh`;
+places its uninitialized directory/allocation/check buffers at `D640h..D73Fh`;
 the other layouts keep their established addresses. Characters above the font
 range render as `?` instead of indexing arbitrary RAM. The pixel oracle covers
 the repaired final glyphs byte-for-byte.
+
+An explicitly negotiated `N4` host also enables the remote console described
+in `SERIAL-CONSOLE-PLAN.md`. Local rendering and matrix input remain active;
+remote `20h` polls and `21h` mirrored-output messages share the Janet USART.
+Idle polling is rate-limited, console waits are short and bounded, and a lost
+reply disables mirroring until a later status-call reprobe. Clean and
+lost-reply cosim runs both type `VER` remotely, type `DIR` locally, preserve
+zero disk retries, and compare the local/remote/framebuffer transcripts.
 
 The host advertises `NRN3`. Opcode 14h returns up to three records in exact
 Juku translated-sector order and may cross a track boundary. Every record has
@@ -898,7 +906,9 @@ gets three exact attempts; exhaustion returns BIOS error 1 instead of hanging
 CP/M forever. A later disk operation starts a new sequence and can recover
 after the host reconnects. The simulator suppresses three complete replies
 after a live prompt, observes `Bdos Err On A: Bad Sector`, answers the CP/M
-error prompt, and then completes a fresh `DIR` with the same target process.
+error prompt, and then completes a fresh `TYPE README.TXT` with the same target
+process. The sequential read deliberately cannot be satisfied by the warmed
+three-record cache.
 
 Negotiation is backward compatible. An `N2` host selects compact one-record
 opcode 13h, while a legacy repeated `NR` selects raw opcode 11h. The focused
@@ -912,10 +922,10 @@ while the register-pair test runs; `DIAG CPU` must report mask `02` and return
 to CP/M, proving the negative path without damaging bootstrap.
 Run it with `make juku-netdisk-v3-cosim-check`.
 
-The current v3 fastboot artifact is 6,665 bytes: 125/128 bytes of core, 267
-extension bytes, an eight-byte `ZF` descriptor, and a 6,262-byte ZX0 stream
-expanding to 9,344 bytes. SHA-256 is
-`62da7f352c7fab86b098ec51dbef27d1ee69a2e51219657281b82a1c9f72eaee`.
+The current v3 fastboot artifact is 6,893 bytes: 125/128 bytes of core, 267
+extension bytes, an eight-byte `ZF` descriptor, and a 6,490-byte ZX0 stream
+expanding to 9,728 bytes. SHA-256 is
+`8a49746f9af32c2608a4f5d6b04ca06b0fe4e3f43c4f1b39afcc37eb69fc4eb5`.
 The V15 loader and host validator alone accept this larger stream below their
 8 KiB compressed-buffer boundary; older V6-V14 limits remain frozen.
 
@@ -931,6 +941,9 @@ cd ~/fun/cpmish && make juku-fastboot-v15-netdisk-v3.bin \
     --disk-baud 19200 --disk-protocol 3 --writable --timeout 86400 \
     /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
 ```
+
+Add `--console-pty /dev/pts/NN` to advertise N4 and enable the optional remote
+console. Without it the host advertises N3 and the target stays disk-only.
 
 Both RAM artifacts remain simulator-proven experiments, not hardware-qualified
 replacements for the frozen V14/RomBios path. The RomBios 52K path remains the

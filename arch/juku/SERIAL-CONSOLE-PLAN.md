@@ -1,11 +1,10 @@
 # Plan: CP/M console over the Janet serial link
 
-Status: **PLAN ONLY, 2026-08-13.** Nothing here is implemented. The
-emulator-side alternative is already available and is what to use for manual
-testing today: `JUKU_CONSOLE_PTY` in cosim plus
-`../8080-cosim/tools/juku_run.py` give an attachable terminal without
-touching firmware. This document describes the firmware feature that would
-also work on real hardware.
+Status: **FULL SIMULATOR BASELINE IMPLEMENTED, 2026-08-15; PHYSICAL
+QUALIFICATION PENDING.** The V15/NetDisk-v3 RAM BIOS negotiates the optional
+`N4` capability and multiplexes a remote console over the resident Janet
+USART. `JUKU_CONSOLE_PTY` remains the emulator's independent local
+screen/keyboard terminal and is used as the byte-exact comparison oracle.
 
 ## Why
 
@@ -20,50 +19,67 @@ machine that never had it.
 `bios.asm` routes every console operation through three ROM calls, so the
 entire change is confined to them:
 
-| BIOS entry | today | with this plan |
+| BIOS entry | RomBios baseline | N4 RAM BIOS |
 | --- | --- | --- |
-| `CONST` | `ROMCALL CONSTA` | ask the host whether a key is pending |
-| `CONIN` | `ROMCALL RDCHR` | fetch one key from the host |
-| `CONOUT` | `ROMCALL WRCHR` | send the character to the host (and optionally still draw it) |
+| `CONST` | `ROMCALL CONSTA` | rate-limited remote poll, then local matrix status |
+| `CONIN` | `ROMCALL RDCHR` | multiplex remote and local nonblocking status |
+| `CONOUT` | `ROMCALL WRCHR` | draw locally, then mirror when enabled |
 
 The transport already exists: the network BIOS owns the 8251, and its disk
 protocol carries an operation byte, sequence number, payload and checksum
 with bounded retry. Console traffic is new message types on that protocol,
 not a second link.
 
-## Design questions to settle first
+## Implemented decisions
 
-1. **Polling cost.** The Juku is always the initiator, and CCP calls `CONST`
-   continuously. A round trip per idle poll would saturate the link. The
-   likely answer is to piggyback a "key pending" flag on every disk reply and
-   only spend a round trip when it is set, with a slow floor poll (say 20/s)
-   when no disk traffic is flowing.
-2. **Screen mirroring.** If `CONOUT` only goes to the host, a physical
-   machine looks dead. Default should probably be both: draw locally *and*
-   send, with a mode byte to disable one.
-3. **Host absence.** If the host disappears mid-session the machine must not
-   hang: `CONST` should fail closed (no key), `CONOUT` should time out and
-   fall back to screen-only rather than block CP/M forever.
-4. **Rate.** At 9600/8O1 a full 40x24 redraw is about a second. This feature
-   wants the 19,200/8O1 mode-2/count-4 setting proven on CS00014; confirming
-   it on CS00015 is a prerequisite, not a nicety
+1. **Polling cost.** `CONST` uses one remote turn per 64 local status calls,
+   not one turn per spin. `CONIN` polls both remote and local nonblocking
+   status so it never commits to a blocking local-only read while a remote key
+   may arrive.
+2. **Screen mirroring.** `CONOUT` always renders locally first, then mirrors
+   the same byte. Local keyboard input remains active alongside remote input.
+3. **Host absence.** A console receive has a short 8,192-status-poll bound.
+   Failure disables mirroring immediately; local output continues. After 256
+   local `CONST` calls the target reprobes, allowing reconnection without a
+   reboot. Unsupported N3/v2/v1 hosts never enable the feature.
+4. **Rate.** The feature uses the 19,200/8O1 mode-2/count-4 setting already
+   proven by sustained disk operation on CS00014 and repeated fastboot/disk
+   sessions on CS00015
    (`../../8080-cosim/docs/juku-serial-19200-investigation.md`).
 5. **Interaction with netboot.** The console only exists once the resident
    network BIOS is running; the ROM's own boot dialogue stays on the Juku
    screen. That is acceptable, but it means a physical bring-up still needs
    the machine's keyboard for `TN`.
 
-## Smaller first step
+## Protocol and host use
 
-**Output-only mirroring.** Add just the `CONOUT` message: the machine keeps
-its own keyboard, and the host gains a live transcript of the session. That
-sidesteps every polling question, is a handful of instructions in `CONOUT`,
-and already delivers logging and remote observation. Input can follow once
-the polling design is measured.
+`20h` polls for one byte and `21h` mirrors one output byte. They use the same
+`JD` request, sequence, XOR checksum, exact-duplicate replay, transmitter
+drain, and bounded response conventions as resident disk operations. An N4
+host returns status 0 for no key, status 2 plus one byte for input, and status
+1 when unsupported. Duplicate output requests are acknowledged without
+printing the byte twice; duplicate polls replay the same consumed key.
+
+The host exposes the feature only when explicitly requested:
+
+```sh
+../8080-cosim/tools/janet_disk_server.py \
+  --disk-baud 19200 --disk-protocol 3 --console-pty /dev/pts/NN \
+  --fast-stage1 juku-fastboot-v15-netdisk-v3.bin \
+  --compact-stock-execute --fast-low-latency-guards \
+  /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
+```
 
 ## Acceptance
 
-Whatever lands must show, in cosim first and then on both physical machines:
-typing latency measured (not guessed), a session that survives the host
-disconnecting and reconnecting, no regression in the disk protocol's retry
-counters, and the existing network regressions still byte-exact.
+Cosim proves remotely typed `VER`, then locally typed `DIR`, exact equality
+between remote and local transcripts, zero disk retries, and complete
+framebuffer equality. A second run drops the first remote-poll reply: the
+target times out, disables the console, reprobes, consumes all four `VER`/CR
+bytes after replies return, and completes local `DIR` without restarting.
+The socket-level host test also proves N4 negotiation, key consumption, and
+idempotent duplicate input/output handling.
+
+Physical acceptance remains: measure typing latency and repeat disconnect /
+reconnect on CS00014 and CS00015. This does not block the completed simulator
+implementation.

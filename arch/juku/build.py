@@ -62,6 +62,7 @@ zmac(
     ],
 )
 zmac(name="netdisk-v3", src="./netdisk-v3.asm")
+zmac(name="netconsole", src="./netconsole.asm")
 zmac(
     name="diag",
     src="./diag.asm",
@@ -433,6 +434,7 @@ ld80(
         0xC600: [".+bios-net-v3-rambio"],
         0xCF00: [".+ram-keyboard"],
         0xD210: [".+netdisk-v3"],
+        0xD480: [".+netconsole"],
     },
 )
 
@@ -507,7 +509,7 @@ simplerule(
     ins=[".+memory-net-v3-rambio"],
     outs=["=juku-net-v3-rambio-system.bin"],
     commands=[
-        "python3 arch/juku/mksystemram.py --max-size 0x2500 "
+        "python3 arch/juku/mksystemram.py --max-size 0x2600 "
         "{ins[0]} {outs[0]}",
     ],
     label="JUKUNETV3RAMBIOSYSTEM",
