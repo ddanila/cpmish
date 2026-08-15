@@ -513,6 +513,16 @@ including exact extension transfer it models **117 ms faster than v8** and
 about **5.52 s** to the first disk request. It remains a desk candidate pending
 a logged CS00015 run; v8 and all earlier artifacts remain byte-identical.
 
+The separately selected host policy `--fast-low-latency-guards` requires
+`--compact-stock-execute` and leaves v9 byte-identical. It uses `tcdrain()`
+instead of a blind 50 ms stock-output wait, reduces the two 20 ms turnaround
+guards to 5 ms, and reduces the post-success guard to 10 ms. The last value
+still covers the three success frames plus target drain. Three repeated clean
+runs, injected corruption/loss, and full network `DIR` pass in cosim. The fixed
+wait reduction is 40 ms; draining compact execute can save up to another 26 ms
+against the old blind wait. The resulting **about 5.45 s** projection remains
+a physical timing candidate, not a measured claim.
+
 The `NETROM2` BIOS also exposes B: using the original Juku double-sided
 geometry: 160 logical tracks, 40 CP/M records per track, 4 KiB allocation
 blocks, and about 784 KiB usable capacity. The host accepts a physical 800 KiB

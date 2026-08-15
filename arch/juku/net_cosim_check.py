@@ -87,10 +87,13 @@ def parse_state(path: Path) -> dict[str, str]:
 def run_fastboot_case(
     trace: Path, work: Path, *, version: int, faults: bool,
     force_rate_fallback: bool = False,
+    low_latency_guards: bool = False,
 ) -> None:
     """Run the real stage-1 code through stock Janet and the bulk protocol."""
     suffix = "fallback" if force_rate_fallback else \
         ("faults" if faults else "clean")
+    if low_latency_guards:
+        suffix += "-low-latency"
     case = work / f"fastboot-v{version}-{suffix}"
     case.mkdir()
     checkpoint = case / "checkpoint"
@@ -197,6 +200,7 @@ def run_fastboot_case(
                 extension_filter=inject_extension,
                 rate_probe_filter=filter_rate_probe,
                 compact_stock_execute=(version in (8, 9)),
+                low_latency_guards=low_latency_guards,
             )
             process.wait(timeout=20)
         finally:
@@ -255,6 +259,15 @@ def run_fastboot_case(
             and result["stock_compact_execute"] == 1
             and result["stock_execute_service_bytes"] == 1,
             f"fastboot v{version} compact stock execute changed: {result}",
+        )
+    if low_latency_guards:
+        require(
+            version == 9
+            and result["low_latency_guards"] == 1
+            and result["turnaround_guard_ms"] == 5
+            and result["stock_handoff"] == "tcdrain"
+            and result["success_guard_ms"] == 10,
+            f"fastboot low-latency policy changed: {result}",
         )
     if faults:
         expected_retries = 2 if version in (3, 4, 5, 6, 7, 8, 9) else 3
@@ -334,7 +347,8 @@ def run_fastboot_case(
     rate_detail = f"rate={result['transfer_baud']}, " \
         if version == 4 else ""
     print(
-        f"FASTBOOT V{version} {'FAULTS' if faults else 'CLEAN'}: PASS "
+        f"FASTBOOT V{version} {'FAULTS' if faults else 'CLEAN'}"
+        f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
         f"(stage={result['stage_bytes']} bytes/"
         f"{result['stock_sent_frames']} stock frames, "
         f"bulk={bulk_detail}, {rate_detail}"
@@ -342,10 +356,15 @@ def run_fastboot_case(
     )
 
 
-def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
+def run_fastboot_disk_case(
+    trace: Path, work: Path, version: int, *, low_latency_guards: bool = False,
+) -> None:
     """Prove a compact fastboot's handoff through prompt and network DIR."""
     require(version in (7, 8, 9), f"unsupported compact fastboot v{version}")
-    case = work / f"fastboot-v{version}-network-dir"
+    case = work / (
+        f"fastboot-v{version}-network-dir"
+        + ("-low-latency" if low_latency_guards else "")
+    )
     case.mkdir()
     master, slave = pty.openpty()
     tty.setraw(slave)
@@ -387,6 +406,7 @@ def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
                 stock_timeout=120, reply_timeout=3, verbose=False,
                 configure_rate=False,
                 compact_stock_execute=(version in (8, 9)),
+                low_latency_guards=low_latency_guards,
             )
 
             def disk_worker() -> None:
@@ -438,7 +458,8 @@ def run_fastboot_disk_case(trace: Path, work: Path, version: int) -> None:
     require("x16 mode=4E" in log and "x16 mode=5E" in log,
             f"v{version} did not exercise its 8N1-to-BIOS-8O1 transition")
     print(
-        f"FASTBOOT V{version} NETWORK DIR: PASS "
+        f"FASTBOOT V{version} NETWORK DIR"
+        f"{' LOW-LATENCY' if low_latency_guards else ''}: PASS "
         f"(reads={stats['reads']}, retries={stats['retries']}, BIOS 8O1)"
     )
 
@@ -1171,6 +1192,17 @@ def main() -> None:
             run_fastboot_disk_case(trace, work, 8)
             run_fastboot_disk_case(trace, work, 9)
             run_fastboot_case(
+                trace, work, version=9, faults=False,
+                low_latency_guards=True,
+            )
+            run_fastboot_case(
+                trace, work, version=9, faults=True,
+                low_latency_guards=True,
+            )
+            run_fastboot_disk_case(
+                trace, work, 9, low_latency_guards=True,
+            )
+            run_fastboot_case(
                 trace, work, version=4, faults=False,
                 force_rate_fallback=True,
             )
@@ -1254,6 +1286,15 @@ def main() -> None:
         run_fastboot_disk_case(trace, work, 7)
         run_fastboot_disk_case(trace, work, 8)
         run_fastboot_disk_case(trace, work, 9)
+        run_fastboot_case(
+            trace, work, version=9, faults=False,
+            low_latency_guards=True,
+        )
+        run_fastboot_case(
+            trace, work, version=9, faults=True,
+            low_latency_guards=True,
+        )
+        run_fastboot_disk_case(trace, work, 9, low_latency_guards=True)
         run_fastboot_case(
             trace, work, version=4, faults=False,
             force_rate_fallback=True,
