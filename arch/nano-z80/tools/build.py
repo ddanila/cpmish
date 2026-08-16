@@ -55,6 +55,15 @@ zmac(
     ],
 )
 
+zmac(
+    name="img160",
+    relocatable=False,
+    src="./img160.z80",
+    deps=[
+        "arch/nano-z80+addresses",
+    ],
+)
+
 
 ackprogram(
     name="nanoterm",
