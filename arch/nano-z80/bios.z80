@@ -410,15 +410,9 @@ READE:
     ld hl, (BDMA)
     ld a, (BSDPAGE)
     out (SD_PAGE), a
-    ld c, SD_DATA
-read_copy_loop: 
-    in a, (c)
-    ld (hl), a
-    inc hl
-    inc c
-    ld a, c
-    cp a, 0
-    jr nz, read_copy_loop
+    ld c, SD_DATA_BYTE
+    ld b, 128
+    inir
 
     call sd_init
     ret
@@ -437,14 +431,8 @@ WRITEE:
     ld a, (BSDPAGE)
     out (SD_PAGE), a
     ld c, SD_DATA
-write_copy_loop:
-    ld a, (hl)
-    out (c), a
-    inc hl
-    inc c
-    ld a, c
-    cp a, 0
-    jr nz, write_copy_loop
+    ld b, 128
+    otir
 
     ; Write strobe
     ld a,0
