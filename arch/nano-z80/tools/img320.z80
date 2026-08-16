@@ -1,0 +1,170 @@
+	maclib addresses
+
+IOBANK          = 0x7f
+IO_SELECT_VIDEO = 0x04
+VID_MODE        = 0x20
+PIX_Y           = 0x21
+PIX_X           = 0x22
+PIX_DATA        = 0x24
+VID_PAGE        = 0x25
+PAL_COLOR       = 0x26
+PAL_R           = 0x27
+PAL_G           = 0x28
+PAL_B           = 0x29
+
+
+	cseg
+	org 0x100
+
+        ; Get command tail length
+        ld a, (0x80)
+        or a
+        jp z, no_file
+
+open_file:
+        ld de, 0x005c
+        ld c, 15
+        call 0x0005
+        cp 0xff
+        jp z, file_error
+
+        ; Set 320x200 buffer
+        ld a, IO_SELECT_VIDEO
+        out (IOBANK), a
+        ld a, 0x02
+        out (VID_MODE), a
+
+        ; Set pixel to 0, 0
+        xor a
+        out (PIX_X), a
+        out (PIX_Y), a
+
+        ; Load palette from file and set
+        ld c, 6 ; Blocks to read
+        ld d, 0 ; Color index
+        ld e, 0 ; Position index (0, 1, 2)
+pal_loop_outer:
+        push bc
+        push de
+        ; Read block from file
+        ld de, 0x005c
+        ld c, 20
+        call 0x0005
+        ld hl, 0x0080
+        pop de
+        pop bc
+        ld b, 128
+        ; Select video bank
+        ld a, IO_SELECT_VIDEO
+        out (IOBANK), a
+
+pal_loop_inner:
+        ; Write block to palette registers
+        ld a, e
+        cp 0
+        jr z, pal_pos_0
+        cp 1
+        jr z, pal_pos_1
+        ; Pos 2
+        ld a, (hl)
+        out (PAL_B), a
+        inc hl
+        ld e, 0
+        jr pal_loop_end
+
+pal_pos_0:
+        ld a, d
+        out (PAL_COLOR), a      ; Set color index
+        inc d
+        ld a, (hl)
+        out (PAL_R), a
+        inc hl
+        inc e
+        jr pal_loop_end
+
+pal_pos_1:
+        ld a, (hl)
+        out (PAL_G), a
+        inc hl
+        inc e
+        jr pal_loop_end
+
+pal_loop_end:
+        djnz pal_loop_inner
+
+        dec c
+        ld a, c
+        or a
+        jr nz, pal_loop_outer
+
+        ; Read image data
+        ld bc, 500      ; blocks to read
+
+read_img_loop:
+        push bc
+        ; Read block from file
+        ld de, 0x005c
+        ld c, 20
+        call 0x0005
+        
+        ; Select video bank
+        ld a, IO_SELECT_VIDEO
+        out (IOBANK), a
+
+        ; Write block to graphics memory
+        ld hl, 0x0080 
+        ld b, 128
+        ld c, PIX_DATA
+        otir
+        pop bc
+        dec bc
+        ld a, b
+        or c
+        jr nz, read_img_loop
+
+        ; Change to graphics mode
+        ld a, IO_SELECT_VIDEO
+        out (IOBANK), a
+        ld a, 0x03
+        out (VID_MODE), a
+
+        ; Wait for keypress
+        ld c, 1
+        call 5
+
+        ; Change back to text mode
+        ld a, IO_SELECT_VIDEO
+        out (IOBANK), a
+        ld a, 0x00
+        out (VID_MODE), a
+
+        ; Exit
+        ret
+               
+file_error:
+        call print_string_inline
+        db "Error loading file"
+        db 13, 10
+        db 0
+        ret
+                
+
+no_file:
+        call print_string_inline
+        db "Usage: img320 imagefile"
+        db 13, 10
+        db 0
+        ret
+
+print_string_inline:
+        pop hl
+        ld a,(hl)
+        inc hl
+        push hl
+        cp 0
+        ret z
+        ld c, a
+        call BBASE+0x0c ; CONOUT
+        jr print_string_inline
+
+
