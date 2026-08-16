@@ -430,7 +430,7 @@ WRITEE:
     ld hl, (BDMA)
     ld a, (BSDPAGE)
     out (SD_PAGE), a
-    ld c, SD_DATA
+    ld c, SD_DATA_BYTE
     ld b, 128
     otir
 
