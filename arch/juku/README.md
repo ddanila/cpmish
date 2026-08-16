@@ -999,6 +999,11 @@ control byte is therefore the stock font convention, not keyboard corruption.
 The independent V15 RAM BIOS deliberately uses a public ASCII font, handles
 BS/CR/LF/ESC as controls, suppresses other bytes below 20h, and renders bytes
 above 7Dh as `?`; its transcript/framebuffer oracle pins that behavior.
+The oracle now renders from `juku-common`'s human-readable source-glyph
+reference rather than parsing the generated assembler font. This catches
+source-sheet extraction errors as well as packed-pixel renderer errors; the
+former self-referential check could not detect the corrected 8-vs-9-pixel
+vertical-pitch defect.
 Selectable native/English presentation remains a user-interface preference
 and physical-console decision, not a missing simulator correctness fix. The
 working RomBios baseline remains unchanged.

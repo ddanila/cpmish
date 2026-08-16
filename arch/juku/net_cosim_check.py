@@ -34,7 +34,13 @@ NETDISK_V2_SYSTEM = ROOT / "juku-net-v2-system.bin"
 RAMOUT_SYSTEM = ROOT / "juku-net-v2-ramout-system.bin"
 RAMBIOS_SYSTEM = ROOT / "juku-net-v2-rambio-system.bin"
 RAMBIOS_V3_SYSTEM = ROOT / "juku-net-v3-rambio-system.bin"
-RAMOUT_FONT = ROOT / "third_party" / "juku-common" / "platform" / "ram-console-font.asm"
+COMMON_TOOLS = ROOT / "third_party" / "juku-common" / "tools"
+sys.path.insert(0, str(COMMON_TOOLS))
+from ram_console_oracle import (  # noqa: E402
+    load_assembly as load_console_assembly_font,
+    load_reference as load_console_reference_font,
+    render_transcript as render_source_console,
+)
 NETDISK_V2_FLAT = ROOT / "juku-net-v2.img"
 SMOKE_SYSTEM = ROOT / "juku-net-smoke-system.bin"
 SMOKE_FLAT = ROOT / "juku-net-smoke.img"
@@ -928,78 +934,8 @@ def read_console_until(fd: int, marker: bytes, timeout: float) -> bytes:
 
 
 def render_ram_console(transcript: bytes) -> bytes:
-    """Reference-render a RAM console transcript for the VRAM oracle."""
-    font = bytearray()
-    for line in RAMOUT_FONT.read_text().splitlines():
-        if not line.lstrip().lower().startswith("db "):
-            continue
-        font.extend(int(value, 16) for value in re.findall(
-            r"\b([0-9a-f]+)h\b", line, re.IGNORECASE,
-        ))
-    require(len(font) == 95 * 7,
-            f"RAM console font has {len(font)} bytes, expected 665")
-
-    # MODX uses 50 bytes per raster line.  Each character is a packed 5x7
-    # glyph plus one blank/cursor scanline, hence 80 columns x 24 rows.
-    vram = bytearray(50 * 24 * 8)
-    column = row = 0
-    escaped = False
-
-    def paint_cell(cell_row: int, cell_column: int,
-                   scanlines: bytes) -> None:
-        require(len(scanlines) == 8, "reference glyph must have 8 rows")
-        for scanline, pixels in enumerate(scanlines):
-            for x in range(5):
-                bit_position = cell_column * 5 + x
-                offset = (cell_row * 8 + scanline) * 50 + bit_position // 8
-                mask = 0x80 >> (bit_position & 7)
-                if pixels & (0x80 >> x):
-                    vram[offset] |= mask
-                else:
-                    vram[offset] &= ~mask
-
-    for character in transcript:
-        if escaped:
-            escaped = False
-            if character == ord("L"):
-                vram[:] = bytes(len(vram))
-                column = row = 0
-            continue
-        if character == 0x1B:
-            escaped = True
-            continue
-        if character == 0x0D:
-            column = 0
-            continue
-        if character == 0x0A:
-            row += 1
-        elif character == 0x08:
-            column = max(0, column - 1)
-            continue
-        elif character < 0x20:
-            continue
-        else:
-            if character > 0x7E:
-                character = ord("?")
-            start = (character - 0x20) * 7
-            glyph = bytes(font[start:start + 7]) + b"\x00"
-            paint_cell(row, column, glyph)
-            column += 1
-            if column < 80:
-                continue
-            column = 0
-            row += 1
-
-        if row >= 24:
-            vram[:9200] = vram[400:]
-            vram[9200:] = bytes(400)
-            row = 23
-
-    # RAMCONOUT leaves a five-pixel underline visible at the next character
-    # position and reloads its blink period.  The prompt-driven cosim captures
-    # terminate within that first visible phase.
-    paint_cell(row, column, b"\x00" * 7 + b"\xF8")
-    return bytes(vram)
+    """Render from the independent human-readable source glyphs."""
+    return render_source_console(transcript)
 
 
 def read_console_for(fd: int, duration: float) -> bytes:
@@ -2151,6 +2087,10 @@ def run_baudtest2_case(
 
 
 def main() -> None:
+    require(
+        load_console_assembly_font() == load_console_reference_font(),
+        "generated RAM console font differs from its source reference",
+    )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baudtest-only", action="store_true")
     parser.add_argument("--keyboard-only", action="store_true")
