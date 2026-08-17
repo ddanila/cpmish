@@ -80,6 +80,8 @@ diskimage(
         "cls.com" : "arch/nano-z80/tools+cls",
         "arrowkey.com" : "arch/nano-z80/tools+arrowkey",
         "imgview.com" : "arch/nano-z80/tools+imgview",
+        "img320.com" : "arch/nano-z80/tools+img320",
+        "img160.com" : "arch/nano-z80/tools+img160",
         },
 )
 
