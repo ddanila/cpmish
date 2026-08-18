@@ -2,6 +2,8 @@
 .obj/
 __pycache__/
 *.img
+/vram.bin
+/zout/
 /juku-system.bin
 /juku-net-system.bin
 /juku-net-mode2-system.bin
