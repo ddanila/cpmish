@@ -149,6 +149,13 @@ Initialize dependencies after cloning with:
 git submodule update --init --recursive
 ```
 
+The Juku branch deliberately pins `juku-common` at `ec662a2`. Advancing it to
+the later ABI 1.2/C6 tip is not a mechanical update: the 51K NetDisk-v3 link
+then reports an overlapping segment in `ram-keyboard.rel`. Keep the known-good
+pin until a separately reviewed CP/Mish RAM-map migration relocates the newer
+shared modules; do not hide the overlap by refreshing only the committed
+binary.
+
 The outputs are:
 
 - `juku-system.bin`: the established 10 KiB JUKUSYS/SYSGEN format, suitable
