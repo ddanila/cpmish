@@ -67,6 +67,7 @@ SD_PAGE         equ $07         ; Select data page (0-3)
 SD_STATUS       equ $08         ; SD card status
 SD_TYPE         equ $09         ; SD card type
 SD_DATA         equ $80         ; Start of data page ($80-$FF)
+SD_DATA_BYTE    equ $0a         ; SD byte interface
 
 ; Disk definitions
 DRIVE_A_SIZE = 4*1024             ; kB
