@@ -72,15 +72,15 @@ FASTBOOT_V15_NETDISK_V3 = ROOT / "juku-fastboot-v15-netdisk-v3.bin"
 DIAG_COM = ROOT / ".obj" / "arch" / "juku" / "+diag" / "diag.cim"
 FLAT = ROOT / ".obj" / "arch" / "juku" / "+flatdiskimage" / \
     "arch" / "juku" / "+flatdiskimage.img"
-sys.path.insert(0, str(COSIM / "tools"))
+sys.path.insert(0, str(COSIM / "tests" / "fixtures"))
 
-from janet_disk_server import (  # noqa: E402
+from legacy_janet_disk_server import (  # noqa: E402
     boot_with_recovery,
     juku_image_to_volume,
     serve_disk,
 )
-from janet_fastboot import serve_fast  # noqa: E402
-from janet_netboot import serve as serve_boot  # noqa: E402
+from legacy_janet_fastboot import serve_fast  # noqa: E402
+from legacy_janet_netboot import serve as serve_boot  # noqa: E402
 
 
 EXPECTED_VRAM = {
