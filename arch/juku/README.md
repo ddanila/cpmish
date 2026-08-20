@@ -300,9 +300,10 @@ session, work on a copy so writes persist independently of rebuilds:
 
 ```sh
 cp juku-net-mode2.img cs00014-netdisk.img
-../8080-cosim/tools/janet_disk_server.py --disk-baud 19200 \
-    --writable --timeout 86400 /dev/ttyUSB0 \
-    juku-net-mode2-system.bin cs00014-netdisk.img
+../8080-cosim/build/jukuhost --serial /dev/ttyUSB0 \
+    --system juku-net-mode2-system.bin --volume cs00014-netdisk.img \
+    --disk-baud 19200 --disk-protocol 2 --writable \
+    --disk-timeout 86400
 ```
 
 Then power/reset and type `TN` without Enter. The server learns the client and
@@ -315,14 +316,10 @@ An unmodified stock ROM can now reach the same CP/M system substantially faster.
 The frozen v1 baseline loads a 558-byte stage through Janet at 9600, then
 transfers the 6656-byte resident image as thirteen CRC16-protected 512-byte
 blocks at the proven 19200 mode-2/count-4 setting; the separately named later
-variants below reduce the stock stage to one record and use streaming:
-
-```sh
-../8080-cosim/tools/janet_disk_server.py \
-    --fast-stage1 juku-fastboot-stage1.bin --disk-baud 19200 \
-    --writable --timeout 86400 /dev/ttyUSB0 \
-    juku-net-mode2-system.bin cs00014-netdisk.img
-```
+variants below reduce the stock stage to one record and use streaming. These
+V1-V15 loader commands are historical regression material now: the sole
+supported runtime host accepts stock Janet or the current C8/V16 contract and
+deliberately rejects the obsolete intermediate loaders.
 
 This path is deliberately fixed-layout and single-client. Per-block retry,
 stream resynchronization, duplicate handling, and a final whole-image CRC are
@@ -661,17 +658,17 @@ the console is its dominant visible cost. `RDBENCH` changes from 6.252 to
 6.179 seconds because only its padding record compresses. Raw records never
 grow on the wire.
 
-Run the physical candidate without changing the ROM:
+The former physical V14 candidate was run without changing the ROM using the
+now-retired Python host. Rebuild its artifacts only for historical simulator
+regression:
 
 ```sh
 cd ~/fun/cpmish && make juku-fastboot-v14-netdisk-v2.bin \
     juku-net-v2-system.bin juku-net-v2.img
-../8080-cosim/tools/janet_disk_server.py \
-    --fast-stage1 juku-fastboot-v14-netdisk-v2.bin \
-    --compact-stock-execute --fast-low-latency-guards --disk-baud 19200 \
-    --writable --timeout 86400 /dev/ttyUSB0 \
-    juku-net-v2-system.bin juku-net-v2.img
 ```
+
+For a supported physical session, use the stock-bootstrap `jukuhost` command
+above. Fastboot V16 belongs to the current C8 ROM/CP/M Plus path.
 
 NetDisk protocol 2 is the server default; `--disk-protocol 1` explicitly
 forces the legacy marker/path for fallback qualification. Cosim boots the v2
@@ -717,9 +714,10 @@ game image remains unchanged and B: is read-only. A: retains the smaller 386K
 geometry and is the only drive affected by `--writable`:
 
 ```sh
-../8080-cosim/tools/janet_disk_server.py --disk-baud 19200 \
-    --writable --drive-b /path/to/J3KGAME2.JUK --timeout 86400 \
-    /dev/ttyUSB0 juku-net-mode2-system.bin cs00014-netdisk.img
+../8080-cosim/build/jukuhost --serial /dev/ttyUSB0 \
+    --system juku-net-mode2-system.bin --volume cs00014-netdisk.img \
+    --drive-b /path/to/J3KGAME2.JUK --disk-baud 19200 \
+    --disk-protocol 2 --writable --disk-timeout 86400
 ```
 
 At CP/M's `A>` prompt, enter `B:` and then `DIR`. The published Juku 3000
@@ -961,29 +959,18 @@ expanding to 9,728 bytes. SHA-256 is
 The V15 loader and host validator alone accept this larger stream below their
 8 KiB compressed-buffer boundary; older V6-V14 limits remain frozen.
 
-This is ready for a future physical RAM-BIOS/NetDisk-v3 experiment, but remains
-simulator-qualified. Build and serve it with:
+This remains a historical simulator-qualified RAM-BIOS/NetDisk-v3 experiment.
+Its V15 host path is retired; build the artifacts only for the frozen cosim
+regression:
 
 ```sh
 cd ~/fun/cpmish && make juku-fastboot-v15-netdisk-v3.bin \
     juku-net-v3-rambio-system.bin juku-net-v2.img
-../8080-cosim/tools/janet_disk_server.py \
-    --fast-stage1 juku-fastboot-v15-netdisk-v3.bin \
-    --compact-stock-execute --fast-low-latency-guards \
-    --disk-baud 19200 --disk-protocol 3 --writable --timeout 86400 \
-    /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
 ```
 
 With the separately versioned simulator-qualified `ekta4402` ROM, the same V15
-artifact can bypass stock Janet entirely. Start the host below and press `N`
-alone at the monitor (no Enter):
-
-```sh
-cd ~/fun/cpmish && ../8080-cosim/tools/janet_disk_server.py \
-    --fast-stage1 juku-fastboot-v15-netdisk-v3.bin --direct-fastboot \
-    --disk-baud 19200 --disk-protocol 3 --timeout 86400 \
-    /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
-```
+artifact historically bypassed stock Janet entirely. That command is no
+longer an operational route; use C8/V16 for direct Fastboot.
 
 The ROM-resident 128-byte V15 core starts at 19200/8N1, so this path has no
 station discovery, 9600-baud record, or stock execute service. The end-to-end
@@ -1043,8 +1030,9 @@ For the monitorless physical test, start the server before powering or resetting
 the Juku:
 
 ```sh
-../8080-cosim/tools/janet_disk_server.py /dev/ttyUSB0 \
-    juku-net-smoke-system.bin juku-net-smoke.img
+../8080-cosim/build/jukuhost --serial /dev/ttyUSB0 \
+    --system juku-net-smoke-system.bin --volume juku-net-smoke.img \
+    --disk-baud 9600 --disk-protocol 1
 ```
 
 Then type `TN` with no Enter at the ROM prompt. A configured physical Juku
@@ -1059,8 +1047,9 @@ For physical use, first extract/copy the generated flat volume (the 400 KiB
 `+flatdiskimage.img` build artifact) to a convenient working path. Start:
 
 ```sh
-../8080-cosim/tools/janet_disk_server.py /dev/ttyUSB0 \
-    juku-net-system.bin juku-flat.img --writable
+../8080-cosim/build/jukuhost --serial /dev/ttyUSB0 \
+    --system juku-net-system.bin --volume juku-flat.img \
+    --disk-baud 9600 --disk-protocol 1 --writable
 ```
 
 Then type `TN` with no Enter at the Juku ROM prompt (`TN0201` is only the

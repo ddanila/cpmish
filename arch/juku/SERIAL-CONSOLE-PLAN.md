@@ -60,15 +60,11 @@ host returns status 0 for no key, status 2 plus one byte for input, and status
 1 when unsupported. Duplicate output requests are acknowledged without
 printing the byte twice; duplicate polls replay the same consumed key.
 
-The host exposes the feature only when explicitly requested:
-
-```sh
-../8080-cosim/tools/janet_disk_server.py \
-  --disk-baud 19200 --disk-protocol 3 --console-pty /dev/pts/NN \
-  --fast-stage1 juku-fastboot-v15-netdisk-v3.bin \
-  --compact-stock-execute --fast-low-latency-guards \
-  /dev/ttyUSB0 juku-net-v3-rambio-system.bin juku-net-v2.img
-```
+The historical prototype exposed the feature through the V15 Python host.
+That runtime has been retired. Current N4 operation uses the native C
+`jukuhost`, C8 ROM, and Fastboot V16 from the sibling CP/M Plus project; this
+document retains the CP/Mish target-side protocol evidence, not an alternative
+production launch command.
 
 ## Acceptance
 
