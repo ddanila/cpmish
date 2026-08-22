@@ -141,8 +141,8 @@ ALU/flags, rotates, DAA, register-pair increment/DAD, SP, and PUSH/POP paths;
 checks its A0..A7 aliases; `DIAG RET` holds and restores one cell; `DIAG RAM`
 runs all three; `DIAG SUM` exercises the shared integrity primitive; and
 `DIAG ALL` runs CPU, the RAM suite, and checksum. Data and retention failures
-print a per-bit mask directly mapping bit 0..7 to D84..D91. No argument
-preserves the original private-memory-test behavior.
+print a per-bit mask directly mapping bit 0..7 to D84..D91. Bare `DIAG` (or
+`DIAG HELP`) prints the selector summary; selected tests do not repeat usage.
 Initialize dependencies after cloning with:
 
 ```sh

@@ -16,7 +16,7 @@ start:
 
         lda     COMMAND_LENGTH
         ora     a
-        jz      run_memory      ; preserve the original no-argument baseline
+        jz      show_usage
         mov     b,a
         lxi     h,COMMAND_TEXT
 skip_space:
@@ -29,7 +29,7 @@ skip_one:
         inx     h
         dcr     b
         jnz     skip_space
-        jmp     run_memory
+        jmp     show_usage
 
 select_test:
         ani     05fh            ; accept upper/lower-case selector names
@@ -43,6 +43,13 @@ select_test:
         jz      select_a_test
         cpi     'S'
         jz      run_checksum
+        cpi     'H'
+        jz      show_usage
+        cpi     '?'
+        jz      show_usage
+        lxi     d,unknown_selector
+        call    print_string
+show_usage:
         lxi     d,usage
         jmp     print_string
 
@@ -173,12 +180,12 @@ print_digit:
         ret
 
 banner:
-        db      13,10,'Juku Diag 0.4',13,10
-        db      'Shared non-destructive 8080 diagnostics.',13,10
-        db      'Usage: DIAG [CPU|MEM|ADDR|RET|RAM|SUM|ALL]',13,10
-        db      'No argument keeps the private RAM test.',13,10,'$'
+        db      13,10,'Juku Diag 0.5',13,10
+        db      'Shared non-destructive 8080 diagnostics.',13,10,'$'
 usage:
-        db      'Unknown selector. Use CPU/MEM/ADDR/RET/RAM/SUM/ALL.',13,10,'$'
+        db      'Usage: DIAG [CPU|MEM|ADDR|RET|RAM|SUM|ALL|HELP]',13,10,'$'
+unknown_selector:
+        db      'Unknown diagnostic selector.',13,10,'$'
 cpu_label:
         db      'CPU: $'
 memory_label:
